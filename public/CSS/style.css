@@ -568,6 +568,7 @@
     height: 3em;
     margin: 1em 21em;
     border-radius: 3em;
+    cursor: pointer;
   }
   
   #open-status {
