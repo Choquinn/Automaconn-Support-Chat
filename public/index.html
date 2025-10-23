@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat - Automaconn</title>
+  <link rel="icon" href="images/favicon.ico">
+  <link rel="stylesheet" href="CSS/style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+</head>
+<body>
+   <!--<h2>Mensagens recebidas:</h2>
+  <ul id="messages"></ul> -->
+  <div id="menu">
+    <div id="menu-header">
+      <div id="itens">
+        <div id="ativos" class="menu-header-options selected" onclick="changeTab(1)">
+          <span id="ativos-sym" class="material-symbols-outlined">
+            comment
+          </span>
+          <p class="header-text">Ativos</p>
+        </div>
+        <div id="na-fila" class="menu-header-options" onclick="changeTab(2)">
+          <span id="na-fila-sym" class="material-symbols-outlined">
+            groups
+          </span>
+          <p class="header-text">Na fila</p>
+        </div>
+        <div id="fechados" class="menu-header-options" onclick="changeTab(3)">
+          <span id="fechados-sym" class="material-symbols-outlined">
+            close
+          </span>
+          <p class="header-text">Fechados</p>
+        </div>
+        <div id="ferramentas">
+          <div id="filter" class="searchbar">
+            <span id="filter-sym" class="material-symbols-outlined filled-icon">
+              filter_alt
+            </span>
+          </div>
+          <div id="search">
+            <input id="type-search" type="text" title="Pesquisar">
+            <span id="search-sym" class="material-symbols-outlined filled-icon">
+              search
+            </span>
+          </div>
+          <div id="config" class="searchbar" onclick="openSettings()">
+            <span id="settings-sym" class="material-symbols-outlined filled-icon">
+              settings
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="config-menu">
+      <button id="exit" onclick="quitSession()">Sair</button>
+    </div>
+    <div id="menu-chat-block">
+      <div class="menu-chats">
+        <img class="user-pfp" src="https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg" alt="miacha"/>
+        <h2 class="client-name">Nomin paia</h2>
+        <p class="latest-msg">olar</p>
+      </div>
+    </div>
+  </div>
+  <div id="chat">
+    <div id="chat-header">
+      <img id="pfp" class="user-pfp big" src="https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg" alt="User pfp"/>
+      <h2 id="client-name" class="client-name">John Doe</h2>
+      <div id="header-util">
+        <span id="change-status">
+          <button id="open-status" onclick="openStatus()">Status<span id="mais-status-sym" class="material-symbols-outlined filled-icon">arrow_drop_up</span></button>
+        </span>
+        <span id="chamada-sym" class="material-symbols-outlined filled-icon">
+          call_end
+        </span>
+        <span id="mais-sym" class="material-symbols-outlined filled-icon">
+          arrow_drop_up
+        </span>
+      </div>
+    </div>
+    <div id="chat-block">
+      <div id="status-buttons">
+        <button id="ativar" onclick="updateStatus('${c.jid}','active')">Ativar</button>
+        <button id="fila" onclick="updateStatus('${c.jid}','queue')">Fila</button>
+        <button id="fechar" onclick="updateStatus('${c.jid}','closed')">Fechar</button>
+      </div>
+      <div id="chat-history">
+      </div>
+    </div>
+    <div id="type-block">
+      <span id="emoji-sym" class="material-icons">
+        mood
+      </span>
+      <input id="text" type="text" placeholder="Mensagem">
+      <div id="util">
+        <span id="anexo-sym" class="material-icons">
+          attach_file
+        </span>
+        <span id="audio-sym" class="material-symbols-outlined filled-icon">
+          mic
+        </span>
+      </div>
+    </div>
+  </div>
+  <!-- JavaScript -->
+  <script src="JS/index.js"></script>
+</body>
+</html>
