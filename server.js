@@ -1,12 +1,20 @@
+require('dotenv').config();
 const express = require("express");
+const jwt = require("jsonwebtoken");
+const User = require("./models/User");
+const Conversation = require("./models/Conversation");
+const bodyParser = require("body-parser");
 const cors = require("cors");
 const fs = require("fs");
 const { makeWASocket, Browsers, useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion } = require("baileys");
 
+require('./database.js');
 const app = express();
 app.use(cors());
+app.use(bodyParser.json());
 app.use(express.json());
 app.use(express.static("public"));
+const JWT_SECRET = "chave123";
 
 let sock; 
 let lastQR = null;
@@ -51,6 +59,21 @@ function createTestConversations() {
   };
 }
 
+async function getProfilePicture(jid, name, isGroup = false) {
+  if (isGroup) {
+    // Grupos: usa avatar com letras
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+  }
+
+  try {
+    const url = await sock.profilePictureUrl(jid, "image");
+    return url;
+  } catch (err) {
+    console.log(`Não conseguiu pegar foto de ${jid}: ${err.message}`);
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+  }
+}
+
 // ===== Inicializa conexão com WhatsApp =====
 const initWASocket = async () => {
   const { state, saveCreds } = await useMultiFileAuthState("auth");
@@ -86,34 +109,84 @@ const initWASocket = async () => {
       const name = msg.pushName || "Usuário";
       const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
       const timestamp = msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now();
-
       if (!text) continue;
 
-      if (!conversations[jid]) {
-        conversations[jid] = {
+      // Só busca foto se for contato individual
+      const isGroup = jid.endsWith("@g.us");
+
+      // Busca conversa no MongoDB
+      let conv = await Conversation.findOne({ jid });
+      if (!conv) {
+        conv = new Conversation({
           jid,
           name,
-          img: "",
+          img: "", // será atualizado abaixo
           status: "queue",
-          messages: []
-        };
-      } else if (conversations[jid].status === "closed") {
-        conversations[jid].status = "queue";
+          messages: [],
+        });
+      } else if (conv.status === "closed") {
+        conv.status = "queue";
       }
 
-      conversations[jid].messages.push({
-        id: msg.key.id,
+      // Atualiza imagem do perfil
+      if (!conv.img || conv.img === "") {
+        conv.img = await getProfilePicture(jid, name, isGroup);
+      }
+
+      // Adiciona a nova mensagem
+      conv.messages.push({
         text,
         fromMe: msg.key.fromMe,
-        timestamp
+        timestamp,
+        messageId: msg.key.id,
       });
+
+      await conv.save();
     }
   });
 
   sock.ev.on("creds.update", saveCreds);
+}
+
+const authMiddleware = (req, res, next) => {
+  const token = req.headers["authorization"];
+  if (!token) return res.status(401).json({ error: "Token não fornecido" });
+
+  try {
+    const decoded = jwt.verify(token.replace("Bearer ", ""), JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ error: "Token inválido" });
+  }
 };
 
 // ===== Endpoints =====
+app.post("/register", async (req, res) => {
+  try {
+    const { username, number, password } = req.body;
+    const user = new User({ username, number, password });
+    await user.save();
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+app.post("/login", async (req, res) => {
+  const { username, number, password } = req.body;
+  const user = await User.findOne({ username });
+  if (!user) return res.json({ success: false, error: "Usuário não encontrado" });
+
+  const isMatch = await user.comparePassword(password);
+  if (!isMatch) return res.json({ success: false, error: "Senha incorreta" });
+
+  // Criar token JWT
+  const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: "365d" });
+  res.json({ success: true, token, username: user.username });
+});
+app.get("/", authMiddleware, (req, res) => {
+  window.location.href = "/index.html"
+});
 app.get("/status", (req, res) => res.json({ status: lastStatus }));
 app.get("/qr", (req, res) => lastQR ? res.json({ qr: lastQR }) : res.status(404).send("QR ainda não gerado"));
 app.get("/exit", async (req, res) => {
@@ -124,23 +197,66 @@ app.get("/exit", async (req, res) => {
   initWASocket();
   window.location.href = "/connect.html";
 });
-app.get("/conversations", (req, res) => res.json(Object.values(conversations)));
-app.get("/conversations/:jid", (req, res) => {
-  const conv = conversations[req.params.jid];
+app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
+  const jid = req.params.jid;
+  try {
+    let img;
+    try {
+      img = await sock.profilePictureUrl(jid, "image");
+    } catch {
+      img = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+    }
+
+    // Atualiza no MongoDB também
+    const conv = await Conversation.findOne({ jid });
+    if (conv) {
+      conv.img = img;
+      await conv.save();
+    }
+
+    res.json({ img });
+  } catch (err) {
+    console.error("Erro ao pegar foto do WhatsApp:", err);
+    res.status(500).json({ img: `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random` });
+  }
+});
+app.get("/conversations", authMiddleware, async (req, res) => {
+  const allConvs = await Conversation.find();
+  res.json(allConvs);
+});
+app.get("/conversations/:jid", authMiddleware, async (req, res) => {
+  const conv = await Conversation.findOne({ jid: req.params.jid });
   if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
   res.json(conv);
 });
-app.post("/conversations/:jid/status", (req, res) => {
+app.post("/conversations/:jid/status", authMiddleware, async (req, res) => {
   const { status } = req.body;
-  const conv = conversations[req.params.jid];
+  const conv = await Conversation.findOne({ jid: req.params.jid });
   if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
   conv.status = status;
+  await conv.save();
   res.json({ success: true });
 });
-app.post("/send", async (req, res) => {
+app.post("/send", authMiddleware, async (req, res) => {
   const { jid, text } = req.body;
   if (!sock || lastStatus !== "conectado") return res.status(400).json({ error: "Bot não está conectado." });
+
   await sock.sendMessage(jid, { text });
+
+  let conv = await Conversation.findOne({ jid });
+  if (!conv) {
+    conv = new Conversation({ jid, name: "", messages: [], status: "queue" });
+  }
+
+  conv.messages.push({
+    text,
+    fromMe: true,
+    timestamp: Date.now(),
+    messageId: Date.now().toString(),
+  });
+
+  await conv.save();
+
   res.json({ success: true });
 });
 
