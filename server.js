@@ -164,8 +164,8 @@ const authMiddleware = (req, res, next) => {
 // ===== Endpoints =====
 app.post("/register", async (req, res) => {
   try {
-    const { username, number, password } = req.body;
-    const user = new User({ username, number, password });
+    const { username, number, password, role } = req.body;
+    const user = new User({ username, number, password, role });
     await user.save();
     res.json({ success: true });
   } catch (err) {
@@ -174,15 +174,15 @@ app.post("/register", async (req, res) => {
 });
 app.post("/login", async (req, res) => {
   const { username, number, password } = req.body;
-  const user = await User.findOne({ username });
+  const user = await User.findOne({ number });
   if (!user) return res.json({ success: false, error: "Usuário não encontrado" });
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) return res.json({ success: false, error: "Senha incorreta" });
 
   // Criar token JWT
-  const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: "365d" });
-  res.json({ success: true, token, username: user.username });
+  const token = jwt.sign({ id: user._id, number: user.number }, JWT_SECRET, { expiresIn: "365d" });
+  res.json({ success: true, token, number: user.number });
 });
 app.get("/", authMiddleware, (req, res) => {
   window.location.href = "/index.html"

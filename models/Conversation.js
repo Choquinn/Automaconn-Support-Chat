@@ -11,6 +11,7 @@ const conversationSchema = new mongoose.Schema({
   jid: { type: String, unique: true },
   name: String,
   img: String,
+  area: Int,
   status: { type: String, default: "queue" },
   messages: [messageSchema]
 });
