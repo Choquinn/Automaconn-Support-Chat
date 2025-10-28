@@ -1,5 +1,46 @@
+const deleteButton = document.getElementById("deleteBtn");
+const addButton = document.getElementById("addBtn");
 let currentTab = 1;
 let currentChat = null;
+var sup = false;
+var trein = false;
+var vend = false;
+var at = false;
+var admin = false;
+
+const token = localStorage.getItem("token") || sessionStorage.getItem("token");; // pega o token armazenado
+
+async function checkUserRoles(token) {
+    const res = await fetch("/me", {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const user = await res.json();
+
+    // Exemplo: verificar area
+    if (user.role.includes(1)) {
+        sup = true;
+    }
+    if (user.role.includes(2)) {
+        trein = true;
+    }
+    if (user.role.includes(3)) {
+        vend = true;
+    }
+    if (user.role.includes(4)) {
+        at = true;
+    }
+    if (user.role.includes(5)) {
+        admin = true;
+    }
+
+    if (admin) {
+      deleteButton.style.display = 'block';
+      addButton.style.display = 'block';
+    }
+}
+
+checkUserRoles(token);
+
 // ===== Alternar abas =====
 function changeTab(tab) {
   currentTab = tab;
@@ -31,7 +72,7 @@ checkConnection();
  
 async function logout() {
   // Checa se o usuário está logado
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
   if (!token) {
     window.location.href = "/login.html";
   }
@@ -52,7 +93,96 @@ async function logout() {
   });
 }
 
-logout();
+async function addUser() {
+  // Checa se o usuário está logado
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
+  if (!token) {
+    return;
+  }
+
+  //Checa se o usuário é administrador
+  if (admin){
+    window.location.href = "/register.html";
+  }else {
+    alert("Você não tem permissão pra fazer essa ação");
+  }
+
+}
+
+async function deleteMenu(){
+  const deleteMenu = document.getElementById("delete-menu");
+  const res = await fetch("/users");
+  const users = await res.json();
+  const div = document.getElementById("delete-options");
+
+  deleteMenu.style.display = 'block';
+  div.innerHTML = '';
+  users.forEach((u) => {
+    var name = u.username;
+    var number = u.number;
+    div.innerHTML += `
+      <option value="${number}">${name}</option>
+    `
+  });
+}
+
+async function deleteUser() {
+  const select = document.getElementById("delete-sel");
+  const userNumber = select.value;
+
+  if (!userNumber) {
+    alert("Escolha um usuário para deletar");
+    return;
+  }
+
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
+  if (!token) {
+    alert("Você não está logado");
+    return;
+  }
+
+  // Checa se o usuário logado é admin
+  const meRes = await fetch("/me", { headers: { Authorization: `Bearer ${token}` } });
+  const me = await meRes.json();
+  if (!me.role.includes(5)) { // 5 = Admin
+    alert("Você não tem permissão pra fazer essa ação");
+    return;
+  }
+
+  // Pega o _id do usuário selecionado via backend
+  const userRes = await fetch(`/user-id/${userNumber}`, { 
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const userData = await userRes.json();
+
+  if (!userData.success) {
+    alert("Usuário não encontrado");
+    return;
+  }
+
+  const userId = userData.id;
+
+  // Deleta o usuário
+  const res = await fetch(`/users/${userId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (res.ok) {
+    alert("Usuário deletado com sucesso");
+    // Atualiza o menu
+    populateDeleteMenu();
+  } else {
+    const err = await res.json();
+    alert("Erro ao deletar usuário: " + (err.error || "Tente novamente"));
+  }
+}
+
+async function cancelDelete() {
+  const deleteMenu = document.getElementById("delete-menu");
+
+  deleteMenu.style.display = 'none';
+}
 
 async function quitSession(){
     await fetch("/exit");
@@ -89,6 +219,11 @@ async function fetchConversations() {
       div.className = "menu-chats";
       div.setAttribute("data-jid", c.jid);
 
+      if (currentChat === c.jid) {
+        div.classList.add("selected"); // mantém a conversa selecionada
+      }
+
+
       const lastMsg = c.messages.slice(-1)[0]?.text || "";
       const imgSrc = c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`;
       div.innerHTML = `
@@ -107,6 +242,8 @@ async function fetchConversations() {
             lastMsg.scrollIntoView({ block: "end" });
           }
         }, 50);
+        document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
+        div.classList.add("selected");
       });
 
       container.appendChild(div);
@@ -124,13 +261,34 @@ function scrollToBottom() {
   }
 }
 
+
+function renderStatusButtons(c) {
+  const statusContainer = document.getElementById("status-buttons");
+  statusContainer.innerHTML = `
+    <button id="ativar" onclick="updateStatus('${c.jid}', 'active')">Ativar</button>
+    <button id="fila" onclick="updateStatus('${c.jid}', 'queue')">Fila</button>
+    <button id="fechar" onclick="updateStatus('${c.jid}', 'closed')">Fechar</button>
+  `;
+}
+
 // ===== Atualizar status =====
 async function updateStatus(jid, status) {
   await fetch(`/conversations/${jid}/status`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
     body: JSON.stringify({ status })
   });
+  switch(status) {
+    case 'active':
+      changeTab(1);
+    break;
+    case 'queue':
+      changeTab(2);
+    break;
+    case 'closed':
+      changeTab(3);
+    break;
+  }
   fetchConversations();
 }
 
@@ -171,9 +329,12 @@ async function openChat(jid) {
       }
     }
 
+    
     // Atualiza cabeçalho do chat
     document.querySelector("#chat-header .client-name").textContent = data.name;
     document.querySelector("#chat-header .user-pfp").src = data.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+    
+    renderStatusButtons(data);
 
     // Verifica mensagens
     if (!data.messages || !Array.isArray(data.messages)) {
@@ -228,14 +389,6 @@ function openStatus(){
 
   }
 
-}
-
-function createStatusButtons(c){
-  document.getElementById("status-buttons").innerHTML = `
-    <button id="ativar" onclick="updateStatus('${c.jid}', 'active')">Ativar</button>
-    <button id="fila" onclick="updateStatus('${c.jid}', 'queue')">Fila</button>
-    <button id="fechar" onclick="updateStatus('${c.jid}', 'closed')">Fechar</button>
-`;
 }
 
 // ===== Atualizações automáticas =====

@@ -48,7 +48,7 @@ async function login() {
 
 // Auto-login ao abrir login.html
 window.addEventListener("load", async () => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
   if (!token) return;
 
   try {

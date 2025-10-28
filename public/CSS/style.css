@@ -580,7 +580,81 @@
     top: 5em;
     right: 11em;
   }
+
+  .configbtn.delete {
+    display: none;
+    background: #ff0000;
+    width: 10em;
+    position: relative;
+    top: 6em;
+    right: 3.4em;
+  }
+
+  .configbtn.add {
+    display: none;
+    background: #109d2f;
+    width: 11em;
+    position: relative;
+    top: 10em;
+    right: 15.4em;
+  }
+
+  #delete-menu {
+    position: fixed;
+    display: none;
+    width: 100%;
+    height: 100%;
+    z-index: 11;
+    background: rgba(0, 0, 0, 0.5);
+  }
   
+  #delete-block {
+    padding: 2em;
+    position: relative;
+    background: #FFF;
+    width: 28em;
+    height: 10em;
+    border-radius: 1em;
+    left: 29em;
+    top: 5em;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #delete-label {
+    margin-top: 1em;
+  }
+
+  #delete-sel {
+    margin: 1em 0;
+    width: 17em;
+    height: 3em;
+    border-radius: 2em;
+    border: 1px #b3b3b3 solid;
+    color: #8b8b8b;
+  }
+
+  .del-button {
+    cursor: pointer;
+    position: relative;
+    top: 3em;
+    height: 3em;
+    width: 8em;
+    border-radius: 4em;
+    border: 1px #393939 solid;
+    outline: none;
+    background: red;
+    color: white;
+  }
+
+  .del-button.white {
+    position: relative;
+    left: 9em;
+    top: 0.6em;
+    background: #FFF;
+    color: #000;
+  }
+
   #open-status {
     cursor: pointer;
     background-color: #25cf29;

@@ -10,8 +10,19 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 </head>
 <body>
-   <!--<h2>Mensagens recebidas:</h2>
-  <ul id="messages"></ul> -->
+   
+  <div id="delete-menu">
+    <div id="delete-block">
+      <label id="delete-label">Usuários</label>
+      <select id="delete-sel" title="delete" name="delete">
+          <option value="">Escolha um usuário para deletar</option>
+          <div id="delete-options">
+          </div>
+      </select>
+      <button class="del-button" onclick="deleteUser()">Deletar</button>
+      <button class="del-button white" onclick="cancelDelete()">Cancelar</button>
+    </div>
+  </div>
   <div id="menu">
     <div id="menu-header">
       <div id="itens">
@@ -54,6 +65,8 @@
       </div>
     </div>
     <div id="config-menu">
+      <button class="configbtn add" id="addBtn" onclick="addUser()">Adicionar usuário</button>
+      <button class="configbtn delete" id="deleteBtn" onclick="deleteMenu()">Deletar usuário</button>
       <button class="configbtn logout" id="logoutBtn">Sair da conta</button>
       <button class="configbtn exit" id="exit" onclick="quitSession()">Sair</button>
     </div>
@@ -83,9 +96,6 @@
     </div>
     <div id="chat-block">
       <div id="status-buttons">
-        <button id="ativar" onclick="updateStatus('${c.jid}','active')">Ativar</button>
-        <button id="fila" onclick="updateStatus('${c.jid}','queue')">Fila</button>
-        <button id="fechar" onclick="updateStatus('${c.jid}','closed')">Fechar</button>
       </div>
       <div id="chat-history">
       </div>

@@ -74,6 +74,8 @@ async function getProfilePicture(jid, name, isGroup = false) {
   }
 }
 
+// ===== Usuários =====
+
 // ===== Inicializa conexão com WhatsApp =====
 const initWASocket = async () => {
   const { state, saveCreds } = await useMultiFileAuthState("auth");
@@ -163,14 +165,29 @@ const authMiddleware = (req, res, next) => {
 
 // ===== Endpoints =====
 app.post("/register", async (req, res) => {
-  try {
-    const { username, number, password, role } = req.body;
-    const user = new User({ username, number, password, role });
-    await user.save();
-    res.json({ success: true });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
+    try {
+        const { username, number, password, role } = req.body;
+
+        // Validação básica
+        if (!username || !number || !password || !role || !Array.isArray(role) || role.length === 0) {
+            return res.json({ success: false, error: "Preencha todos os campos e selecione pelo menos uma área" });
+        }
+
+        // Checa se o número já existe
+        const existingUser = await User.findOne({ number });
+        if (existingUser) {
+            return res.json({ success: false, error: "Número já cadastrado" });
+        }
+
+        // Cria o usuário
+        const user = new User({ username, number, password, role });
+        await user.save();
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.json({ success: false, error: err.message });
+    }
 });
 app.post("/login", async (req, res) => {
   const { username, number, password } = req.body;
@@ -183,6 +200,61 @@ app.post("/login", async (req, res) => {
   // Criar token JWT
   const token = jwt.sign({ id: user._id, number: user.number }, JWT_SECRET, { expiresIn: "365d" });
   res.json({ success: true, token, number: user.number });
+});
+app.get("/users", async (req, res) => {
+  try {
+    const user = await User.find(); // busca todos
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ err: "Erro ao buscar usuários", detalhes: err.message });
+  }
+});
+app.get("/users/:id", async (req, res) => {
+  try {
+    const user = await User.findById(id); // busca todos
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ err: "Erro ao buscar usuários", detalhes: err.message });
+  }
+});
+app.get("/user-id/:number", async (req, res) => {
+  try {
+    const number = req.params.number;
+    const user = await User.findOne({ number }, { _id: 1 });
+    if (!user) return res.status(404).json({ success: false, error: "Usuário não encontrado" });
+    res.json({ success: true, id: user._id });
+  } catch (err) {
+    res.status(500).json({ success: false, error: "Erro ao buscar usuário" });
+  }
+});
+app.get("/me", authMiddleware, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+
+        res.json({
+            username: user.username,
+            number: user.number,
+            role: user.role // array de números
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Erro ao buscar usuário", detalhes: err.message });
+    }
+});
+app.delete("/users/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const resultado = await User.findByIdAndDelete(id);
+
+    if (!resultado) {
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+
+    res.json({ mensagem: "Usuário deletado com sucesso" });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao deletar usuário", detalhes: err.message });
+  }
 });
 app.get("/", authMiddleware, (req, res) => {
   window.location.href = "/index.html"

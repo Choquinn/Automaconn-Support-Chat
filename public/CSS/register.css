@@ -8,7 +8,7 @@ body {
   height: 100vh;
 }
 
-.login-box {
+.register-box {
   height: 3em;
   border: 1px #7f7f7f solid;
   width: 14em;
@@ -17,7 +17,7 @@ body {
   border-radius: 2em;
 }
 
-#login {
+#register {
   width: 6em;
   height: 3em;
   border-radius: 2em;
@@ -25,9 +25,13 @@ body {
   cursor: pointer;
 }
 
-#login:hover {
+#register:hover {
   color: #FFF;
   background-color: #000;
   border: 1px #7f7f7f solid;
   cursor: pointer;
+}
+
+.role {
+  margin-top: 0.7em;
 }
