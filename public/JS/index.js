@@ -2,11 +2,13 @@ const deleteButton = document.getElementById("deleteBtn");
 const addButton = document.getElementById("addBtn");
 let currentTab = 1;
 let currentChat = null;
+let lastMessageCount = 0;
 var sup = false;
 var trein = false;
 var vend = false;
 var at = false;
 var admin = false;
+let lastMessageCountMap = {}; 
 
 const token = localStorage.getItem("token") || sessionStorage.getItem("token");; // pega o token armazenado
 
@@ -236,12 +238,6 @@ async function fetchConversations() {
         currentChat = c.jid;
         openChat(c.jid);
 
-        setInterval(() => {
-          const lastMsg = document.getElementById("chat-history").lastElementChild;
-          if (lastMsg) {
-            lastMsg.scrollIntoView({ block: "end" });
-          }
-        }, 50);
         document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
         div.classList.add("selected");
       });
@@ -271,6 +267,52 @@ function renderStatusButtons(c) {
   `;
 }
 
+async function updateChat(jid) {
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  if (!token) return;
+
+  const chatContainer = document.getElementById("chat-history");
+  if (!chatContainer) return;
+
+  try {
+    const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (!data.messages || !Array.isArray(data.messages)) return;
+
+    const lastMessageCount = lastMessageCountMap[jid] || 0;
+    if (data.messages.length > lastMessageCount) {
+      const newMessages = data.messages.slice(lastMessageCount);
+
+      // Verifica se usuário está no fim do chat
+      const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
+
+      newMessages.forEach(msg => {
+        const div = document.createElement("div");
+        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        div.innerHTML = `
+          <p class="msg-bubble-text">${msg.text}</p>
+          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+        `;
+        chatContainer.appendChild(div);
+      });
+
+      if (isAtBottom) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      lastMessageCountMap[jid] = data.messages.length;
+    }
+
+  } catch (err) {
+    console.error("Erro ao atualizar chat:", err);
+  }
+}
+
 // ===== Atualizar status =====
 async function updateStatus(jid, status) {
   await fetch(`/conversations/${jid}/status`, {
@@ -295,56 +337,22 @@ async function updateStatus(jid, status) {
 // ===== Abrir chat =====
 async function openChat(jid) {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-  if (!token) {
-    window.location.href = "/login.html";
-    return;
-  }
+  if (!token) return window.location.href = "/login.html";
 
   try {
-    // Busca a conversa
     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-      headers: { "Authorization": "Bearer " + token }
+      headers: { Authorization: `Bearer ${token}` }
     });
+    if (!res.ok) throw new Error("Não foi possível carregar a conversa");
 
-    if (!res.ok) {
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        sessionStorage.removeItem("token");
-        window.location.href = "/login.html";
-      }
-      throw new Error("Não foi possível carregar a conversa");
-    }
-
-    let data = await res.json();
-
-    // Se a imagem for vazia ou fallback, tenta atualizar do WhatsApp
-    if (!data.img || data.img.includes("ui-avatars.com")) {
-      try {
-        const updatedImg = await fetch(`/update-profile-picture/${encodeURIComponent(jid)}`, {
-          headers: { "Authorization": "Bearer " + token }
-        }).then(r => r.json()).then(d => d.img).catch(() => data.img);
-        data.img = updatedImg;
-      } catch {
-        // mantém fallback
-      }
-    }
-
-    
-    // Atualiza cabeçalho do chat
-    document.querySelector("#chat-header .client-name").textContent = data.name;
-    document.querySelector("#chat-header .user-pfp").src = data.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
-    
-    renderStatusButtons(data);
-
-    // Verifica mensagens
-    if (!data.messages || !Array.isArray(data.messages)) {
-      console.error("Conversa inválida ou sem mensagens:", data);
-      return;
-    }
-
-    // Renderiza mensagens
+    const data = await res.json();
     const chatContainer = document.getElementById("chat-history");
+
+    // Remove todas as mensagens antigas
     chatContainer.innerHTML = "";
+
+    // Cria fragmento de documento para adicionar todas as mensagens de uma vez
+    const fragment = document.createDocumentFragment();
     data.messages.forEach(msg => {
       const div = document.createElement("div");
       div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
@@ -353,14 +361,23 @@ async function openChat(jid) {
         <p class="msg-bubble-text">${msg.text}</p>
         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
       `;
-      chatContainer.appendChild(div);
+      fragment.appendChild(div);
     });
+
+    chatContainer.appendChild(fragment);
+
+    // Aguarda o próximo repaint antes de rolar
+    requestAnimationFrame(() => {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    });
+
+    // Atualiza contador de mensagens
+    lastMessageCountMap[jid] = data.messages.length;
 
   } catch (err) {
     console.error("Erro ao abrir conversa:", err);
   }
 }
-
 var open = false;
 
 function openSettings(){
@@ -392,8 +409,10 @@ function openStatus(){
 }
 
 // ===== Atualizações automáticas =====
-setInterval(fetchConversations, 2000);
-setInterval(() => { if(currentChat) openChat(currentChat); }, 1000);
+setInterval(fetchConversations, 2000); // atualiza lista de chats
+setInterval(() => {
+  if (currentChat) updateChat(currentChat);
+}, 1000);
 
 // Inicializa
 fetchConversations();
