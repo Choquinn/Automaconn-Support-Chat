@@ -3,57 +3,13 @@ const addButton = document.getElementById("addBtn");
 let currentTab = 1;
 let currentChat = null;
 let lastMessageCount = 0;
+let chatHeaderCache = {}; // jid → { name, img }
+let lastMessageCountMap = {};
 var sup = false;
 var trein = false;
 var vend = false;
 var at = false;
 var admin = false;
-let lastMessageCountMap = {}; 
-
-(async function initializeApp() {
-  console.log("🚀 Iniciando app...");
-  
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-  
-  if (!token) {
-    console.log("❌ Token não encontrado");
-    window.location.href = "/login.html";
-    return;
-  }
-  
-  console.log("✅ Token encontrado");
-
-  try {
-    const loadingScreen = document.getElementById("loading-screen");
-    
-    // 1. Verifica conexão
-    await checkConnection();
-    
-    // 2. Verifica permissões do usuário
-    await checkUserRoles(token);
-    
-    // 3. Precarrega conversas
-    await fetchConversations();
-    
-    // 4. Remove loading screen
-    if (loadingScreen) {
-      loadingScreen.style.opacity = '0';
-      loadingScreen.style.transition = 'opacity 0.3s';
-      setTimeout(() => {
-        loadingScreen.style.display = 'none';
-      }, 300);
-    }
-    
-    // 5. Inicia atualizações automáticas
-    loadingScreen.style.display = "none";
-    
-  } catch (error) {
-    console.error("❌ Erro ao inicializar:", error);
-    console.error("Stack trace:", error.stack);
-    alert("Erro ao carregar o aplicativo: " + error.message);
-  }
-})();
-
 
 const token = localStorage.getItem("token") || sessionStorage.getItem("token");; // pega o token armazenado
 
@@ -280,6 +236,11 @@ async function fetchConversations() {
         div.classList.add("selected"); // mantém a conversa selecionada
       }
 
+      chatHeaderCache[c.jid] = {
+        name: c.name,
+        img: c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`
+      };
+
       const lastMsg = c.messages.slice(-1)[0]?.text || "";
       const imgSrc = c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`;
       div.innerHTML = `
@@ -400,6 +361,18 @@ function scrollToBottom(smooth = false) {
 async function openChat(jid) {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
   if (!token) return window.location.href = "/login.html";
+
+  const chatContainer = document.getElementById("chat-history");
+  const headerName = document.querySelector("#chat-header .client-name");
+  const headerImg = document.querySelector("#chat-header .user-pfp");
+
+  if (chatHeaderCache[jid]) {
+    headerName.textContent = chatHeaderCache[jid].name;
+    headerImg.src = chatHeaderCache[jid].img;
+  } else {
+    headerName.textContent = "Carregando...";
+    headerImg.src = "https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg";
+  }
 
   try {
     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
