@@ -396,6 +396,21 @@
     cursor: pointer;
   }
 
+  #mais-sym.opened {
+    transform: rotate(180deg);
+  }
+
+  #more-chat {
+    display: none;
+    position: fixed;
+    z-index: 10;
+    background-color: #FFF;
+    height: 41em;
+    width: 67em;
+    border-radius: 0 0 2em 2em;
+    border-bottom: 1px #959595 solid;
+  }
+
   /* ===== BLOCO DE MENSAGENS ===== */
   #chat-block {
     flex: 1;

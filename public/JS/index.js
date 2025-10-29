@@ -181,6 +181,48 @@ async function deleteUser() {
   }
 }
 
+async function deleteConversation(jid) {
+  const conversationJid = jid;
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
+  
+  if (!token) {
+    alert("Você não está logado");
+    return;
+  }
+
+  const meRes = await fetch("/me", { headers: { Authorization: `Bearer ${token}` } });
+  const me = await meRes.json();
+  if (!me.role.includes(5)) {
+    alert("Você não tem permissão pra fazer essa ação");
+    return;
+  }
+
+  const convRes = await fetch(`/conversation-id/${conversationJid}`, { 
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const convData = await convRes.json();
+
+  if (!convData.success) {
+    alert("Conversa não encontrada");
+    return;
+  }
+
+  const convId = convData.id;
+
+  const res = await fetch(`/conversations/${convId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (res.ok) {
+    alert("Conversa deletada com sucesso");
+    populateDeleteMenu();
+  } else {
+    const err = await res.json();
+    alert("Erro ao deletar essa conversa: " + (err.error || "Tente novamente"));
+  }
+}
+
 async function cancelDelete() {
   const deleteMenu = document.getElementById("delete-menu");
 
@@ -275,6 +317,10 @@ function renderStatusButtons(c) {
   `;
 }
 
+// function renderConversationButtons(c) {
+
+// }
+
 async function updateChat(jid) {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
   if (!token) return;
@@ -357,6 +403,36 @@ function scrollToBottom(smooth = false) {
   }
 }
 
+var moreOpened = false;
+
+async function expandContact() {
+  const more = document.getElementById("more-chat");
+  const button = document.getElementById("mais-sym");
+  const buttons = document.getElementById("more-buttons");
+  const deleteButton = document.getElementById("delete-conv");
+  const header = document.getElementById("chat-header");
+  const div = document.querySelector(".menu-chats.selected");
+  const jid = div.getAttribute("data-jid");
+
+  buttons.innerHTML = `
+    <button id="delete-conv" class="configbtn delete" onclick="deleteConversation(${jid})">Deletar conversa</button>
+  `.then(() => {
+    if (!moreOpened){
+      more.style.display = "block";
+      header.style.display = "none";
+      deleteButton.style.display = "block !important";
+      button.classList.add("opened");
+      moreOpened = true;
+    }else {
+      more.style.display = "none";
+      header.style.display = "flex";
+      deleteButton.style.display = "none";
+      button.classList.remove("opened");
+      moreOpened = false;
+    }
+  });
+} 
+
 // openChat atualizado
 async function openChat(jid) {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -387,6 +463,8 @@ async function openChat(jid) {
     document.querySelector("#chat-header .client-name").textContent = data.name;
     document.querySelector("#chat-header .user-pfp").src = data.img || 'https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg';
    
+    renderStatusButtons(data);
+    
     // Limpa mensagens antigas
     chatContainer.innerHTML = "";
 

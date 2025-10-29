@@ -292,16 +292,26 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     res.status(500).json({ img: `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random` });
   }
 });
-app.get("/conversations", authMiddleware, async (req, res) => {
+app.get("/conversations", /*authMiddleware,*/ async (req, res) => {
   const allConvs = await Conversation.find();
   res.json(allConvs);
 });
-app.get("/conversations/:jid", authMiddleware, async (req, res) => {
+app.get("/conversations/:jid", /*authMiddleware,*/ async (req, res) => {
   const conv = await Conversation.findOne({ jid: req.params.jid });
   if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
   res.json(conv);
 });
-app.post("/conversations/:jid/status", authMiddleware, async (req, res) => {
+app.get("/conversation-id/:jid", async (req, res) => {
+  try {
+    const jid = req.params.jid;
+    const conversation = await Conversation.findOne({ jid }, { _id: 1 });
+    if (!conversation) return res.status(404).json({ success: false, error: "Conversa não encontrada" });
+    res.json({ success: true, id: conversation._id });
+  } catch (err) {
+    res.status(500).json({ success: false, error: "Erro ao buscar essa conversa" });
+  }
+});
+app.post("/conversations/:jid/status", /*authMiddleware,*/ async (req, res) => {
   const { status } = req.body;
   const conv = await Conversation.findOne({ jid: req.params.jid });
   if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
@@ -309,6 +319,20 @@ app.post("/conversations/:jid/status", authMiddleware, async (req, res) => {
   await conv.save();
   res.json({ success: true });
 });
+app.delete("/conversations/:jid", /*authMiddleware,*/ async (req, res) => {
+  try {
+    const { jid } = req.params;
+
+    const resultado = await Conversation.findByIdAndDelete(jid);
+
+    if (!resultado) {
+      return res.status(404).json({ error: "Conversa não encontrada" });
+    }
+    return res.json("Conversa deletada com sucesso!");
+  } catch (err){
+    res.status(500).json({ error: "Erro ao deletar essa conversa", detalhes: err.message });
+  }
+})
 app.post("/send", authMiddleware, async (req, res) => {
   const { jid, text } = req.body;
   if (!sock || lastStatus !== "conectado") return res.status(400).json({ error: "Bot não está conectado." });

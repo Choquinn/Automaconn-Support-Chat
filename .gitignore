@@ -5,3 +5,5 @@
 /yarn.lock
 /.tmp.drivedownload
 /.tmp.driveupload
+.env
+./.env
