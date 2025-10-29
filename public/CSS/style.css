@@ -23,7 +23,7 @@
   #menu-header {
     display: flex;
     position: fixed;
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     border: #a5a5a5 1px solid;
     width: 23em;
     z-index: 2;
@@ -76,7 +76,7 @@
   }
 
   .menu-chats {
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     display: flex;
     margin-bottom: 1.5em;
     flex-wrap: wrap;
@@ -123,7 +123,7 @@
   }
 
   #chat-block {
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     width: 94em;
     min-height: 61em;
     height: fit-content;
@@ -268,7 +268,7 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     border-right: 1px solid #a0a0a0;
   }
 
@@ -278,7 +278,7 @@
 
   #itens {
     display: flex;
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     border-bottom: 1px solid #a5a5a5;
     height: 7em;
     width: 100%;
@@ -316,7 +316,7 @@
   }
 
   .menu-chats {
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -356,7 +356,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
   }
 
   #chat-header {
@@ -399,25 +399,27 @@
   /* ===== BLOCO DE MENSAGENS ===== */
   #chat-block {
     flex: 1;
+    display: flex; /* adicione se não tiver */
     flex-direction: column;
-    justify-content: flex-end; /* mensagens embaixo */
-    padding: 2em;
-    gap: 1em;
-    overflow-y: auto; /* scroll independente */
-    overflow-x: hidden;
-    background-color: #D9D9D9;
+    overflow: hidden; /* NÃO coloque scroll aqui, só no #chat-history */
+    background-color: #B6B6B6;
+    min-height: 0;
   }
 
   #chat-history {
     flex: 1;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end; /* mensagens embaixo */
-    padding: 2em;
+    /* REMOVIDO: justify-content: flex-end; */
+    padding: 0 2em;
     gap: 1em;
     overflow-y: auto; /* scroll independente */
     overflow-x: hidden;
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
+    
+    /* Adicione estas propriedades para forçar o scroll */
+    min-height: 0; /* IMPORTANTE: permite que flex calcule corretamente */
+    max-height: 100%; 
   }
 
   .msg-bubble {
@@ -544,7 +546,7 @@
   }
 
   #config-menu {
-    background-color: #D9D9D9;
+    background-color: #B6B6B6;
     height: 28em;
     width: 22em;
     border-radius: 2em;

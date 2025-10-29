@@ -10,6 +10,51 @@ var at = false;
 var admin = false;
 let lastMessageCountMap = {}; 
 
+(async function initializeApp() {
+  console.log("🚀 Iniciando app...");
+  
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  
+  if (!token) {
+    console.log("❌ Token não encontrado");
+    window.location.href = "/login.html";
+    return;
+  }
+  
+  console.log("✅ Token encontrado");
+
+  try {
+    const loadingScreen = document.getElementById("loading-screen");
+    
+    // 1. Verifica conexão
+    await checkConnection();
+    
+    // 2. Verifica permissões do usuário
+    await checkUserRoles(token);
+    
+    // 3. Precarrega conversas
+    await fetchConversations();
+    
+    // 4. Remove loading screen
+    if (loadingScreen) {
+      loadingScreen.style.opacity = '0';
+      loadingScreen.style.transition = 'opacity 0.3s';
+      setTimeout(() => {
+        loadingScreen.style.display = 'none';
+      }, 300);
+    }
+    
+    // 5. Inicia atualizações automáticas
+    loadingScreen.style.display = "none";
+    
+  } catch (error) {
+    console.error("❌ Erro ao inicializar:", error);
+    console.error("Stack trace:", error.stack);
+    alert("Erro ao carregar o aplicativo: " + error.message);
+  }
+})();
+
+
 const token = localStorage.getItem("token") || sessionStorage.getItem("token");; // pega o token armazenado
 
 async function checkUserRoles(token) {
@@ -191,6 +236,16 @@ async function quitSession(){
     checkConnection();
 }
 
+function checkChat(){
+  if (!document.querySelector(".menu-chats.selected")){
+    document.getElementById("chat").style.display = "none";
+  }else {
+    document.getElementById("chat").style.display = "flex";
+  }
+}
+
+checkChat();
+
 // ===== Buscar conversas =====
 async function fetchConversations() {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -225,7 +280,6 @@ async function fetchConversations() {
         div.classList.add("selected"); // mantém a conversa selecionada
       }
 
-
       const lastMsg = c.messages.slice(-1)[0]?.text || "";
       const imgSrc = c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`;
       div.innerHTML = `
@@ -240,6 +294,7 @@ async function fetchConversations() {
 
         document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
         div.classList.add("selected");
+        checkChat();
       });
 
       container.appendChild(div);
@@ -249,14 +304,6 @@ async function fetchConversations() {
     console.error("Erro ao buscar conversas:", err);
   }
 }
-
-function scrollToBottom() {
-  const chatContainer = document.getElementById("chat-history");
-  if (chatContainer) {
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-  }
-}
-
 
 function renderStatusButtons(c) {
   const statusContainer = document.getElementById("status-buttons");
@@ -335,6 +382,21 @@ async function updateStatus(jid, status) {
 }
 
 // ===== Abrir chat =====
+function scrollToBottom(smooth = false) {
+  const chatContainer = document.getElementById("chat-history");
+  if (!chatContainer) return;
+  
+  if (smooth) {
+    chatContainer.scrollTo({
+      top: chatContainer.scrollHeight,
+      behavior: 'smooth'
+    });
+  } else {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+}
+
+// openChat atualizado
 async function openChat(jid) {
   const token = localStorage.getItem("token") || sessionStorage.getItem("token");
   if (!token) return window.location.href = "/login.html";
@@ -347,11 +409,15 @@ async function openChat(jid) {
 
     const data = await res.json();
     const chatContainer = document.getElementById("chat-history");
-
-    // Remove todas as mensagens antigas
+    
+    // Atualiza header
+    document.querySelector("#chat-header .client-name").textContent = data.name;
+    document.querySelector("#chat-header .user-pfp").src = data.img || 'https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg';
+   
+    // Limpa mensagens antigas
     chatContainer.innerHTML = "";
 
-    // Cria fragmento de documento para adicionar todas as mensagens de uma vez
+    // Adiciona mensagens
     const fragment = document.createDocumentFragment();
     data.messages.forEach(msg => {
       const div = document.createElement("div");
@@ -365,17 +431,113 @@ async function openChat(jid) {
     });
 
     chatContainer.appendChild(fragment);
-
-    // Aguarda o próximo repaint antes de rolar
-    requestAnimationFrame(() => {
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    });
-
-    // Atualiza contador de mensagens
     lastMessageCountMap[jid] = data.messages.length;
+
+    // Scroll imediato após renderizar
+    requestAnimationFrame(() => {
+      scrollToBottom(false);
+    });
 
   } catch (err) {
     console.error("Erro ao abrir conversa:", err);
+  }
+}
+
+// updateChat atualizado
+async function updateChat(jid) {
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  if (!token) return;
+
+  const chatContainer = document.getElementById("chat-history");
+  if (!chatContainer) return;
+
+  try {
+    const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (!data.messages || !Array.isArray(data.messages)) return;
+
+    const lastMessageCount = lastMessageCountMap[jid] || 0;
+    if (data.messages.length > lastMessageCount) {
+      const newMessages = data.messages.slice(lastMessageCount);
+
+      // Verifica se está próximo do fim (100px de margem)
+      const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
+
+      newMessages.forEach(msg => {
+        const div = document.createElement("div");
+        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        div.innerHTML = `
+          <p class="msg-bubble-text">${msg.text}</p>
+          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+        `;
+        chatContainer.appendChild(div);
+      });
+
+      // Só rola se estava perto do fim
+      if (isNearBottom) {
+        scrollToBottom(true); // com smooth scroll
+      }
+
+      lastMessageCountMap[jid] = data.messages.length;
+    }
+
+  } catch (err) {
+    console.error("Erro ao atualizar chat:", err);
+  }
+}
+
+// Atualiza a função updateChat
+async function updateChat(jid) {
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  if (!token) return;
+
+  const chatContainer = document.getElementById("chat-history");
+  if (!chatContainer) return;
+
+  try {
+    const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (!data.messages || !Array.isArray(data.messages)) return;
+
+    const lastMessageCount = lastMessageCountMap[jid] || 0;
+    if (data.messages.length > lastMessageCount) {
+      const newMessages = data.messages.slice(lastMessageCount);
+
+      // Verifica se usuário está próximo do fim (aumentei de 50 para 100px)
+      const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
+
+      newMessages.forEach(msg => {
+        const div = document.createElement("div");
+        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        div.innerHTML = `
+          <p class="msg-bubble-text">${msg.text}</p>
+          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+        `;
+        chatContainer.appendChild(div);
+      });
+
+      // Rola se estava próximo do final
+      if (isNearBottom) {
+        scrollToBottom(true);
+        // Tenta novamente após um delay curto
+        setTimeout(() => scrollToBottom(true), 50);
+      }
+
+      lastMessageCountMap[jid] = data.messages.length;
+    }
+
+  } catch (err) {
+    console.error("Erro ao atualizar chat:", err);
   }
 }
 var open = false;
