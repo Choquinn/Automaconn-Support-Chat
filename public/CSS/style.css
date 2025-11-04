@@ -1,5 +1,6 @@
-@media(min-width: 1920px) {
-  html, body {
+@media (min-width: 1920px) {
+  html,
+  body {
     padding: 0 !important;
     margin: 0 !important;
   }
@@ -7,7 +8,7 @@
   body {
     font-family: Arial;
     padding: 20px;
-    display: flex;          
+    display: flex;
     align-items: flex-start;
     background: #f5f5f5;
   }
@@ -23,7 +24,7 @@
   #menu-header {
     display: flex;
     position: fixed;
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     border: #a5a5a5 1px solid;
     width: 23em;
     z-index: 2;
@@ -39,12 +40,12 @@
 
   #na-fila-sym {
     padding: 0;
-    margin: 0;  
+    margin: 0;
   }
 
   #fechados-sym {
     padding: 0;
-    margin: 0;  
+    margin: 0;
   }
 
   p {
@@ -76,7 +77,7 @@
   }
 
   .menu-chats {
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     display: flex;
     margin-bottom: 1.5em;
     flex-wrap: wrap;
@@ -86,8 +87,8 @@
   }
 
   .menu-chats.selected {
-    background-color: #6A8260;
-    color: #FFF;
+    background-color: #6a8260;
+    color: #fff;
   }
 
   .user-pfp {
@@ -105,6 +106,7 @@
   }
 
   #chat {
+    display: none;
     width: 94.16em;
     margin-left: 0.093em;
     min-height: 61em;
@@ -116,14 +118,14 @@
     width: 93.99em;
     position: fixed;
     z-index: 2;
-    background-color: #FFF;
+    background-color: #fff;
     align-items: center;
     border: #a0a0a0 1px solid;
     border-radius: 0 0 26px 26px;
   }
 
   #chat-block {
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     width: 94em;
     min-height: 61em;
     height: fit-content;
@@ -143,7 +145,7 @@
   }
 
   #type-block {
-    background: #FFF;
+    background: #fff;
     width: 90.2em;
     margin-left: 2em;
     display: flex;
@@ -194,19 +196,19 @@
 
   /* Garantir estilo padrão (contornado) */
   .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48 !important;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 48 !important;
     font-feature-settings: "liga" 1; /* opcional */
     -webkit-font-smoothing: antialiased;
   }
 
   /* Apenas ícones com .filled-icon ficam preenchidos */
   .material-symbols-outlined.filled-icon {
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48 !important;
+    font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 48 !important;
   }
 
   .msg-bubble {
-    background-color: #3E5641;
-    color: #FFF;
+    background-color: #3e5641;
+    color: #fff;
     width: fit-content;
     justify-self: right;
     height: fit-content;
@@ -229,7 +231,7 @@
     font-size: 18px;
   }
 
-  .msg-hour{
+  .msg-hour {
     color: #8f8f8f;
     position: relative;
     top: 0.8em;
@@ -237,7 +239,7 @@
     font-size: 14px;
   }
 
-  .msg-hour.client{
+  .msg-hour.client {
     color: #8f8f8f;
     position: relative;
     top: 0.8em;
@@ -248,7 +250,8 @@
 }
 
 @media (min-width: 1366px) {
-  html, body {
+  html,
+  body {
     padding: 0 !important;
     margin: 0 !important;
     overflow: hidden; /* sem scroll geral */
@@ -268,17 +271,17 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     border-right: 1px solid #a0a0a0;
   }
 
   #menu-header {
-    background-color: #FFF;
+    background-color: #fff;
   }
 
   #itens {
     display: flex;
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     border-bottom: 1px solid #a5a5a5;
     height: 7em;
     width: 100%;
@@ -309,14 +312,14 @@
 
   #menu-chat-block {
     flex: 1;
-    background-color: #FFF;
+    background-color: #fff;
     overflow-y: auto; /* scroll independente */
     overflow-x: hidden;
     padding: 1.5em;
   }
 
   .menu-chats {
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -332,8 +335,8 @@
   }
 
   .menu-chats.selected {
-    background-color: #6A8260;
-    color: #FFF;
+    background-color: #6a8260;
+    color: #fff;
   }
 
   .user-pfp {
@@ -356,13 +359,13 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
   }
 
   #chat-header {
     display: flex;
     align-items: center;
-    background-color: #FFF;
+    background-color: #fff;
     border-bottom: 1px solid #a0a0a0;
     border-radius: 0 0 26px 26px;
     padding: 0.8em 1em;
@@ -392,23 +395,40 @@
     cursor: pointer;
   }
 
-  #mais-sym{
+  #mais-sym {
     cursor: pointer;
   }
 
   #mais-sym.opened {
+    cursor: pointer;
     transform: rotate(180deg);
   }
 
   #more-chat {
     display: none;
     position: fixed;
-    z-index: 10;
-    background-color: #FFF;
+    z-index: 9;
+    bottom: 7.3em;
+    background-color: #fff;
     height: 41em;
     width: 67em;
     border-radius: 0 0 2em 2em;
     border-bottom: 1px #959595 solid;
+  }
+
+  #more-buttons {
+    position: fixed;
+    z-index: 12;
+    height: 85%;
+    width: 75%;
+  }
+
+  #delete-conv {
+    position: fixed;
+    display: block;
+    width: 12em;
+    top: 49em;
+    left: 85em;
   }
 
   /* ===== BLOCO DE MENSAGENS ===== */
@@ -417,7 +437,7 @@
     display: flex; /* adicione se não tiver */
     flex-direction: column;
     overflow: hidden; /* NÃO coloque scroll aqui, só no #chat-history */
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     min-height: 0;
   }
 
@@ -430,16 +450,16 @@
     gap: 1em;
     overflow-y: auto; /* scroll independente */
     overflow-x: hidden;
-    background-color: #B6B6B6;
-    
+    background-color: #b6b6b6;
+
     /* Adicione estas propriedades para forçar o scroll */
     min-height: 0; /* IMPORTANTE: permite que flex calcule corretamente */
-    max-height: 100%; 
+    max-height: 100%;
   }
 
   .msg-bubble {
-    background-color: #3E5641;
-    color: #FFF;
+    background-color: #3e5641;
+    color: #fff;
     width: fit-content;
     max-width: 60%;
     padding: 0.5em 2.5em;
@@ -480,7 +500,7 @@
 
   /* ===== CAMPO DE DIGITAÇÃO ===== */
   #type-block {
-    background: #FFF;
+    background: #fff;
     border-radius: 24px;
     margin: 1em 2em;
     height: 4em;
@@ -561,7 +581,7 @@
   }
 
   #config-menu {
-    background-color: #B6B6B6;
+    background-color: #b6b6b6;
     height: 28em;
     width: 22em;
     border-radius: 2em;
@@ -575,10 +595,11 @@
 
   .configbtn {
     border: none;
+    display: none;
     font-size: 12px;
     font-weight: 800;
     font-family: "Inter", sans-serif;
-    color: #FFF;
+    color: #fff;
     width: 6.5em;
     height: 3em;
     margin: 1em 21em;
@@ -624,11 +645,11 @@
     z-index: 11;
     background: rgba(0, 0, 0, 0.5);
   }
-  
+
   #delete-block {
     padding: 2em;
     position: relative;
-    background: #FFF;
+    background: #fff;
     width: 28em;
     height: 10em;
     border-radius: 1em;
@@ -668,14 +689,14 @@
     position: relative;
     left: 9em;
     top: 0.6em;
-    background: #FFF;
+    background: #fff;
     color: #000;
   }
 
   #open-status {
     cursor: pointer;
     background-color: #25cf29;
-    color: #FFF;
+    color: #fff;
     border: none;
     border-radius: 1.5em;
     outline: none;
@@ -685,8 +706,8 @@
   }
 
   #status-buttons {
-    background-color: #FFF;
-    display: flex;
+    background-color: #fff;
+    display: none;
     flex-direction: column;
     gap: 1em;
     padding-top: 1em;
@@ -703,7 +724,7 @@
 
   #ativar {
     background-color: #00d144;
-    color: #FFF;
+    color: #fff;
     outline: none;
     border: none;
     border-radius: 1em;
@@ -715,10 +736,10 @@
     padding-left: 16px;
     cursor: pointer;
   }
-  
+
   #fila {
     background-color: #687a6e;
-    color: #FFF;
+    color: #fff;
     outline: none;
     border: none;
     border-radius: 1em;
@@ -730,10 +751,10 @@
     padding-left: 16px;
     cursor: pointer;
   }
-  
+
   #fechar {
     background-color: #c90c0c;
-    color: #FFF;
+    color: #fff;
     outline: none;
     border: none;
     border-radius: 1em;
@@ -748,10 +769,59 @@
 
   /* ===== ICONES ===== */
   .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48 !important;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 48 !important;
   }
 
   .material-symbols-outlined.filled-icon {
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48 !important;
+    font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 48 !important;
+  }
+
+  #loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.3s ease;
+  }
+
+  .loading-content {
+    text-align: center;
+    color: white;
+  }
+
+  .spinner {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 20px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top: 4px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  .loading-content h2 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+
+  .loading-content p {
+    font-size: 14px;
+    opacity: 0.8;
   }
 }

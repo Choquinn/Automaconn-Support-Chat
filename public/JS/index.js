@@ -1,50 +1,155 @@
+// ===== CONSTANTES E VARIÁVEIS GLOBAIS =====
 const deleteButton = document.getElementById("deleteBtn");
 const addButton = document.getElementById("addBtn");
+const textInput = document.getElementById("text");
+const callButton = document.getElementById("chamada-sym");
+const imageCache = {};
 let currentTab = 1;
 let currentChat = null;
-let lastMessageCount = 0;
-let chatHeaderCache = {}; // jid → { name, img }
+let chatHeaderCache = {};
 let lastMessageCountMap = {};
+let isLoading = true;
+
+// Variáveis de roles
 var sup = false;
 var trein = false;
 var vend = false;
 var at = false;
 var admin = false;
 
-const token = localStorage.getItem("token") || sessionStorage.getItem("token");; // pega o token armazenado
+// ===== FUNÇÕES DE TOKEN (sem localStorage) =====
+let authToken = null;
 
+function getToken() {
+  return authToken;
+}
+
+function setToken(token) {
+  authToken = token;
+}
+
+function clearToken() {
+  authToken = null;
+}
+
+// Carrega token ao iniciar (se existir no localStorage - apenas leitura inicial)
+if (localStorage.getItem("token")) {
+  authToken = localStorage.getItem("token");
+} else if (sessionStorage.getItem("token")) {
+  authToken = sessionStorage.getItem("token");
+}
+
+// ===== TELA DE LOADING =====
+function showLoading() {
+  const loadingOverlay = document.getElementById("loading-overlay");
+  if (loadingOverlay) {
+    loadingOverlay.style.display = "flex";
+  }
+}
+
+function hideLoading() {
+  const loadingOverlay = document.getElementById("loading-overlay");
+  if (loadingOverlay) {
+    loadingOverlay.style.opacity = "0";
+    setTimeout(() => {
+      loadingOverlay.style.display = "none";
+    }, 300);
+  }
+}
+
+// ===== INICIALIZAÇÃO =====
+async function initializeApp() {
+  showLoading();
+  
+  const token = getToken();
+  if (!token) {
+    window.location.href = "/login.html";
+    return;
+  }
+
+  try {
+    // Checa roles do usuário
+    await checkUserRoles(token);
+    
+    // Checa conexão
+    await checkConnection();
+    
+    // Carrega conversas iniciais
+    await fetchConversations();
+    
+    // Pré-carrega imagens das conversas visíveis
+    await preloadVisibleImages();
+    
+    isLoading = false;
+    hideLoading();
+    
+  } catch (error) {
+    console.error("Erro na inicialização:", error);
+    hideLoading();
+    alert("Erro ao carregar aplicação. Tente novamente.");
+  }
+}
+
+// ===== VERIFICAÇÃO DE ROLES =====
 async function checkUserRoles(token) {
+  try {
     const res = await fetch("/me", {
-        headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` }
     });
+    
+    if (!res.ok) {
+      throw new Error("Erro ao verificar usuário");
+    }
+    
     const user = await res.json();
 
-    // Exemplo: verificar area
-    if (user.role.includes(1)) {
-        sup = true;
-    }
-    if (user.role.includes(2)) {
-        trein = true;
-    }
-    if (user.role.includes(3)) {
-        vend = true;
-    }
-    if (user.role.includes(4)) {
-        at = true;
-    }
-    if (user.role.includes(5)) {
-        admin = true;
-    }
+    sup = user.role.includes(1);
+    trein = user.role.includes(2);
+    vend = user.role.includes(3);
+    at = user.role.includes(4);
+    admin = user.role.includes(5);
 
     if (admin) {
       deleteButton.style.display = 'block';
       addButton.style.display = 'block';
     }
+  } catch (error) {
+    console.error("Erro ao verificar roles:", error);
+    throw error;
+  }
 }
 
-checkUserRoles(token);
+// ===== VERIFICAÇÃO DE CONEXÃO =====
+async function checkConnection() {
+  try {
+    const statusRes = await fetch("/status");
+    const { status } = await statusRes.json();
 
-// ===== Alternar abas =====
+    if (status !== "conectado") {
+      window.location.href = "/connect.html";
+    }
+  } catch (error) {
+    console.error("Erro ao verificar conexão:", error);
+    window.location.href = "/connect.html";
+  }
+}
+
+// ===== PRÉ-CARREGAMENTO DE IMAGENS =====
+async function preloadVisibleImages() {
+  const visibleChats = document.querySelectorAll(".menu-chats");
+  const promises = [];
+  
+  visibleChats.forEach((chatDiv) => {
+    const jid = chatDiv.getAttribute("data-jid");
+    if (jid) {
+      promises.push(updateProfilePicture(jid));
+    }
+  });
+  
+  await Promise.all(promises);
+}
+
+// ===== ALTERNAR ABAS =====
 function changeTab(tab) {
   currentTab = tab;
   document.querySelectorAll(".menu-header-options").forEach((el, i) => {
@@ -53,82 +158,54 @@ function changeTab(tab) {
   fetchConversations();
 }
 
-window.addEventListener("storage", (e) => {
-  if (e.key === "token" && e.newValue === null) {
-    // token removido em outra aba
-    window.location.href = "/login.html";
+// ===== LOGOUT =====
+// Inicializa o listener apenas uma vez
+document.addEventListener("DOMContentLoaded", () => {
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/logout", { method: "POST" }).catch(() => {});
+      } catch (e) {
+        console.warn("Erro no logout backend:", e);
+      }
+
+      clearToken();
+      localStorage.removeItem("token");
+      sessionStorage.removeItem("token");
+      window.location.href = "/login.html";
+    });
   }
 });
 
-async function checkConnection() {
-  const statusRes = await fetch("/status");
-  const { status } = await statusRes.json();
-
-  if (status === "conectado") {
-    return; // para de checar
-  }else {
-    window.location.href = "/connect.html";
-  }
-}
-
-checkConnection();
- 
-async function logout() {
-  // Checa se o usuário está logado
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
-  if (!token) {
-    window.location.href = "/login.html";
-  }
-
-  document.getElementById("logoutBtn").addEventListener("click", async () => {
-    try {
-      // Opcional: avisar servidor sobre logout (não remove token do backend se você não implementar blacklist)
-      await fetch("/logout", { method: "POST" }).catch(()=>{});
-    } catch (e) {
-      console.warn("erro no logout backend:", e);
-    }
-
-    // Remover o token exatamente da chave que usamos
-    localStorage.removeItem("token");
-
-    // Confirmação e redireciona para a tela de login
-    window.location.href = "/login.html";
-  });
-}
-
+// ===== ADICIONAR USUÁRIO =====
 async function addUser() {
-  // Checa se o usuário está logado
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
-  if (!token) {
-    return;
-  }
+  const token = getToken();
+  if (!token) return;
 
-  //Checa se o usuário é administrador
-  if (admin){
+  if (admin) {
     window.location.href = "/register.html";
-  }else {
-    alert("Você não tem permissão pra fazer essa ação");
+  } else {
+    alert("Você não tem permissão para fazer essa ação");
   }
-
 }
 
-async function deleteMenu(){
-  const deleteMenu = document.getElementById("delete-menu");
+// ===== DELETAR USUÁRIO - MENU =====
+async function deleteMenu() {
+  const deleteMenuEl = document.getElementById("delete-menu");
   const res = await fetch("/users");
   const users = await res.json();
   const div = document.getElementById("delete-options");
 
-  deleteMenu.style.display = 'block';
+  deleteMenuEl.style.display = 'block';
   div.innerHTML = '';
+  
   users.forEach((u) => {
-    var name = u.username;
-    var number = u.number;
-    div.innerHTML += `
-      <option value="${number}">${name}</option>
-    `
+    div.innerHTML += `<option value="${u.number}">${u.username}</option>`;
   });
 }
 
+// ===== DELETAR USUÁRIO =====
 async function deleteUser() {
   const select = document.getElementById("delete-sel");
   const userNumber = select.value;
@@ -138,21 +215,22 @@ async function deleteUser() {
     return;
   }
 
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
+  const token = getToken();
   if (!token) {
     alert("Você não está logado");
     return;
   }
 
-  // Checa se o usuário logado é admin
-  const meRes = await fetch("/me", { headers: { Authorization: `Bearer ${token}` } });
+  const meRes = await fetch("/me", { 
+    headers: { Authorization: `Bearer ${token}` } 
+  });
   const me = await meRes.json();
-  if (!me.role.includes(5)) { // 5 = Admin
-    alert("Você não tem permissão pra fazer essa ação");
+  
+  if (!me.role.includes(5)) {
+    alert("Você não tem permissão para fazer essa ação");
     return;
   }
 
-  // Pega o _id do usuário selecionado via backend
   const userRes = await fetch(`/user-id/${userNumber}`, { 
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -163,41 +241,35 @@ async function deleteUser() {
     return;
   }
 
-  const userId = userData.id;
-
-  // Deleta o usuário
-  const res = await fetch(`/users/${userId}`, {
+  const res = await fetch(`/users/${userData.id}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` }
   });
 
   if (res.ok) {
     alert("Usuário deletado com sucesso");
-    // Atualiza o menu
-    populateDeleteMenu();
+    deleteMenu();
   } else {
     const err = await res.json();
     alert("Erro ao deletar usuário: " + (err.error || "Tente novamente"));
   }
 }
 
+// ===== DELETAR CONVERSA =====
 async function deleteConversation(jid) {
-  const conversationJid = jid;
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");;
+  const token = getToken();
   
   if (!token) {
     alert("Você não está logado");
     return;
   }
 
-  const meRes = await fetch("/me", { headers: { Authorization: `Bearer ${token}` } });
+  const meRes = await fetch("/me", { 
+    headers: { Authorization: `Bearer ${token}` } 
+  });
   const me = await meRes.json();
-  if (!me.role.includes(5)) {
-    alert("Você não tem permissão pra fazer essa ação");
-    return;
-  }
 
-  const convRes = await fetch(`/conversation-id/${conversationJid}`, { 
+  const convRes = await fetch(`/conversation-id/${jid}`, { 
     headers: { Authorization: `Bearer ${token}` }
   });
   const convData = await convRes.json();
@@ -207,46 +279,99 @@ async function deleteConversation(jid) {
     return;
   }
 
-  const convId = convData.id;
-
-  const res = await fetch(`/conversations/${convId}`, {
+  const res = await fetch(`/conversations/${convData.id}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` }
   });
 
   if (res.ok) {
     alert("Conversa deletada com sucesso");
-    populateDeleteMenu();
+    fetchConversations();
+    document.getElementById("chat").style.display = "none";
+    currentChat = null;
   } else {
     const err = await res.json();
     alert("Erro ao deletar essa conversa: " + (err.error || "Tente novamente"));
   }
 }
 
-async function cancelDelete() {
-  const deleteMenu = document.getElementById("delete-menu");
-
-  deleteMenu.style.display = 'none';
+// ===== CANCELAR DELETE =====
+function cancelDelete() {
+  const deleteMenuEl = document.getElementById("delete-menu");
+  deleteMenuEl.style.display = 'none';
 }
 
-async function quitSession(){
-    await fetch("/exit");
-    checkConnection();
+// ===== SAIR DA SESSÃO =====
+async function quitSession() {
+  await fetch("/exit");
+  checkConnection();
 }
 
-function checkChat(){
-  if (!document.querySelector(".menu-chats.selected")){
-    document.getElementById("chat").style.display = "none";
-  }else {
-    document.getElementById("chat").style.display = "flex";
+// ===== VERIFICAR SE CHAT ESTÁ ABERTO =====
+function checkChat() {
+  const chatEl = document.getElementById("chat");
+  if (!document.querySelector(".menu-chats.selected")) {
+    chatEl.style.display = "none";
+  } else {
+    chatEl.style.display = "flex";
   }
 }
 
-checkChat();
+// ===== ATUALIZAR FOTO DE PERFIL =====
+async function updateProfilePicture(jid) {
+  try {
+    const imgEl = document.querySelector(`img[data-jid="${jid}"]`);
+    if (!imgEl) return;
 
-// ===== Buscar conversas =====
+    const cacheEntry = imageCache[jid];
+    const cacheValid = cacheEntry && (Date.now() - cacheEntry.timestamp < 60 * 60 * 1000);
+
+    if (cacheValid && imgEl.src.includes(cacheEntry.url)) {
+      return;
+    }
+
+    const res = await fetch(`/update-profile-picture/${jid}`, {
+      headers: { Authorization: `Bearer ${getToken()}` }
+    });
+
+    if (res.status === 204) {
+      imgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+      imageCache[jid] = { url: imgEl.src, timestamp: Date.now() };
+      return;
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    let imgUrl;
+
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      imgUrl = data.img;
+    } else {
+      imgUrl = `/profile-pics/${encodeURIComponent(jid)}.jpg`;
+    }
+
+    if (imgEl.src !== imgUrl) {
+      imgEl.src = imgUrl;
+      imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
+    }
+
+  } catch (err) {
+    console.error(`Erro ao atualizar imagem de ${jid}:`, err);
+  }
+}
+
+function safeUpdateProfilePicture(jid, retries = 5) {
+  const imgEl = document.querySelector(`img[data-jid="${jid}"]`);
+  if (imgEl) {
+    updateProfilePicture(jid);
+  } else if (retries > 0) {
+    setTimeout(() => safeUpdateProfilePicture(jid, retries - 1), 200);
+  }
+}
+
+// ===== BUSCAR CONVERSAS =====
 async function fetchConversations() {
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  const token = getToken();
   if (!token) {
     alert("Você não está logado");
     window.location.href = "/login.html";
@@ -262,45 +387,57 @@ async function fetchConversations() {
     const data = await res.json();
 
     const container = document.getElementById("menu-chat-block");
-    container.innerHTML = "";
+    const existingChats = {};
+
+    container.querySelectorAll(".menu-chats").forEach(div => {
+      existingChats[div.getAttribute("data-jid")] = div;
+    });
 
     let filtered = [];
     if (currentTab === 1) filtered = data.filter(c => c.status === "active");
     if (currentTab === 2) filtered = data.filter(c => c.status === "queue");
     if (currentTab === 3) filtered = data.filter(c => c.status === "closed");
 
-    filtered.forEach(c => {
-      const div = document.createElement("div");
-      div.className = "menu-chats";
-      div.setAttribute("data-jid", c.jid);
+    for (const c of filtered) {
+      let div = existingChats[c.jid];
 
-      if (currentChat === c.jid) {
-        div.classList.add("selected"); // mantém a conversa selecionada
+      if (!div) {
+        div = document.createElement("div");
+        div.className = "menu-chats";
+        div.setAttribute("data-jid", c.jid);
+        div.innerHTML = `
+          <img class="user-pfp" data-jid="${c.jid}" 
+            src="${c.img || `/profile-pics/${encodeURIComponent(c.jid)}.jpg`}" />
+          <h2 class="client-name"></h2>
+          <p class="latest-msg"></p>
+        `;
+        container.appendChild(div);
+
+        div.addEventListener("click", () => {
+          currentChat = c.jid;
+          openChat(c.jid);
+          document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
+          div.classList.add("selected");
+          checkChat();
+        });
       }
 
-      chatHeaderCache[c.jid] = {
-        name: c.name,
-        img: c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`
-      };
+      div.querySelector(".client-name").textContent = c.name;
+      div.querySelector(".latest-msg").textContent = c.messages.slice(-1)[0]?.text || "";
 
-      const lastMsg = c.messages.slice(-1)[0]?.text || "";
-      const imgSrc = c.img || `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=random`;
-      div.innerHTML = `
-        <img class="user-pfp" src="${imgSrc}" />
-        <h2 class="client-name">${c.name}</h2>
-        <p class="latest-msg">${lastMsg}</p>
-      `;
-
-      div.addEventListener("click", () => {
-        currentChat = c.jid;
-        openChat(c.jid);
-
-        document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
+      if (currentChat === c.jid) {
         div.classList.add("selected");
-        checkChat();
-      });
+      } else {
+        div.classList.remove("selected");
+      }
 
-      container.appendChild(div);
+      safeUpdateProfilePicture(c.jid);
+    }
+
+    Object.keys(existingChats).forEach(jid => {
+      if (!filtered.find(c => c.jid === jid)) {
+        existingChats[jid].remove();
+      }
     });
 
   } catch (err) {
@@ -308,6 +445,7 @@ async function fetchConversations() {
   }
 }
 
+// ===== RENDERIZAR BOTÕES DE STATUS =====
 function renderStatusButtons(c) {
   const statusContainer = document.getElementById("status-buttons");
   statusContainer.innerHTML = `
@@ -317,78 +455,49 @@ function renderStatusButtons(c) {
   `;
 }
 
-// function renderConversationButtons(c) {
-
-// }
-
-async function updateChat(jid) {
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-  if (!token) return;
-
-  const chatContainer = document.getElementById("chat-history");
-  if (!chatContainer) return;
-
-  try {
-    const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!res.ok) return;
-
-    const data = await res.json();
-    if (!data.messages || !Array.isArray(data.messages)) return;
-
-    const lastMessageCount = lastMessageCountMap[jid] || 0;
-    if (data.messages.length > lastMessageCount) {
-      const newMessages = data.messages.slice(lastMessageCount);
-
-      // Verifica se usuário está no fim do chat
-      const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
-
-      newMessages.forEach(msg => {
-        const div = document.createElement("div");
-        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-        div.innerHTML = `
-          <p class="msg-bubble-text">${msg.text}</p>
-          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-        `;
-        chatContainer.appendChild(div);
-      });
-
-      if (isAtBottom) {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }
-
-      lastMessageCountMap[jid] = data.messages.length;
+function renderMessages(chatContainer, messages) {
+  messages.forEach(msg => {
+    // Evita duplicação
+    if (!document.getElementById(msg.messageId)) {
+      const div = document.createElement("div");
+      div.id = msg.messageId;
+      div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+      const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      div.innerHTML = `
+        <p class="msg-bubble-text">${msg.text}</p>
+        <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+      `;
+      chatContainer.appendChild(div);
     }
-
-  } catch (err) {
-    console.error("Erro ao atualizar chat:", err);
-  }
+  });
 }
 
-// ===== Atualizar status =====
+// ===== ATUALIZAR STATUS =====
 async function updateStatus(jid, status) {
   await fetch(`/conversations/${jid}/status`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+    headers: { 
+      "Content-Type": "application/json", 
+      "Authorization": "Bearer " + getToken() 
+    },
     body: JSON.stringify({ status })
   });
+  
   switch(status) {
     case 'active':
       changeTab(1);
-    break;
+      break;
     case 'queue':
       changeTab(2);
-    break;
+      break;
     case 'closed':
       changeTab(3);
-    break;
+      break;
   }
   fetchConversations();
 }
 
-// ===== Abrir chat =====
+// ===== SCROLL TO BOTTOM =====
 function scrollToBottom(smooth = false) {
   const chatContainer = document.getElementById("chat-history");
   if (!chatContainer) return;
@@ -403,51 +512,150 @@ function scrollToBottom(smooth = false) {
   }
 }
 
+// ===== EXPANDIR CONTATO (CORRIGIDO) =====
 var moreOpened = false;
 
-async function expandContact() {
+function expandContact() {
   const more = document.getElementById("more-chat");
   const button = document.getElementById("mais-sym");
   const buttons = document.getElementById("more-buttons");
-  const deleteButton = document.getElementById("delete-conv");
   const header = document.getElementById("chat-header");
   const div = document.querySelector(".menu-chats.selected");
+  
+  if (!div) return;
+  
   const jid = div.getAttribute("data-jid");
 
-  buttons.innerHTML = `
-    <button id="delete-conv" class="configbtn delete" onclick="deleteConversation(${jid})">Deletar conversa</button>
-  `.then(() => {
-    if (!moreOpened){
-      more.style.display = "block";
-      header.style.display = "none";
-      deleteButton.style.display = "block !important";
-      button.classList.add("opened");
-      moreOpened = true;
-    }else {
-      more.style.display = "none";
-      header.style.display = "flex";
-      deleteButton.style.display = "none";
-      button.classList.remove("opened");
-      moreOpened = false;
-    }
-  });
-} 
+  if (!moreOpened) {
+    buttons.innerHTML = `
+      <button id="delete-conv" class="configbtn delete" onclick="deleteConversation('${jid}')">Deletar conversa</button>
+    `;
+    header.style.visibility = "hidden";
+    more.style.display = "block";
+    button.style.visibility = "visible";
+    button.classList.add("opened");
+    moreOpened = true;
+  } else {
+    more.style.display = "none";
+    header.style.visibility = "visible";
+    button.classList.remove("opened");
+    moreOpened = false;
+  }
+}
 
-// openChat atualizado
+// ===== ABRIR CHAT =====
+// async function openChat(jid) {
+//   const token = getToken();
+//   if (!token) return window.location.href = "/login.html";
+
+//   const chatContainer = document.getElementById("chat-history");
+//   const headerName = document.getElementById("client-name");
+//   const headerImg = document.getElementById("pfp");
+
+//   headerImg.setAttribute('data-jid', jid);
+
+//   const cached = chatHeaderCache[jid];
+//   if (cached) {
+//     headerName.textContent = cached.name;
+//     headerImg.src = cached.img;
+//   } else {
+//     headerName.textContent = "Carregando...";
+//     const cachedImage = imageCache[jid];
+//     if (cachedImage) {
+//       headerImg.src = cachedImage.url;
+//     } else {
+//       headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+//     }
+//   }
+
+//   try {
+//     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
+//       headers: { Authorization: `Bearer ${token}` }
+//     });
+//     if (!res.ok) throw new Error("Não foi possível carregar a conversa");
+
+//     const data = await res.json();
+//     headerName.textContent = data.name;
+    
+//     try {
+//       const imgRes = await fetch(`/update-profile-picture/${jid}`, {
+//         headers: { Authorization: `Bearer ${token}` }
+//       });
+
+//       if (imgRes.status === 204) {
+//         headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+//         imageCache[jid] = { url: headerImg.src, timestamp: Date.now() };
+//       } else {
+//         const contentType = imgRes.headers.get("content-type") || "";
+//         let imgUrl;
+
+//         if (contentType.includes("application/json")) {
+//           const imgData = await imgRes.json();
+//           imgUrl = imgData.img;
+//         } else {
+//           imgUrl = `/profile-pics/${encodeURIComponent(jid)}.jpg`;
+//         }
+
+//         headerImg.src = imgUrl;
+//         imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
+//       }
+//     } catch (imgErr) {
+//       console.error("Erro ao carregar imagem:", imgErr);
+//       headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+//     }
+
+//     chatHeaderCache[jid] = {
+//       name: data.name,
+//       img: headerImg.src
+//     };
+
+//     renderStatusButtons(data);
+
+//     chatContainer.innerHTML = "";
+//     const fragment = document.createDocumentFragment();
+
+//     data.messages.forEach(msg => {
+//       const div = document.createElement("div");
+//       div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+//       const time = new Date(msg.timestamp)
+//         .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+//       div.innerHTML = `
+//         <p class="msg-bubble-text">${msg.text}</p>
+//         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+//       `;
+//       fragment.appendChild(div);
+//     });
+
+//     chatContainer.appendChild(fragment);
+//     lastMessageCountMap[jid] = data.messages.length;
+
+//     requestAnimationFrame(() => {
+//       scrollToBottom(false);
+//     });
+
+//   } catch (err) {
+//     console.error("Erro ao abrir conversa:", err);
+//   }
+// }
+
 async function openChat(jid) {
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  const token = getToken();
   if (!token) return window.location.href = "/login.html";
 
   const chatContainer = document.getElementById("chat-history");
-  const headerName = document.querySelector("#chat-header .client-name");
-  const headerImg = document.querySelector("#chat-header .user-pfp");
+  const headerName = document.getElementById("client-name");
+  const headerImg = document.getElementById("pfp");
 
-  if (chatHeaderCache[jid]) {
-    headerName.textContent = chatHeaderCache[jid].name;
-    headerImg.src = chatHeaderCache[jid].img;
+  headerImg.setAttribute('data-jid', jid);
+
+  const cached = chatHeaderCache[jid];
+  if (cached) {
+    headerName.textContent = cached.name;
+    headerImg.src = cached.img;
   } else {
     headerName.textContent = "Carregando...";
-    headerImg.src = "https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg";
+    const cachedImage = imageCache[jid];
+    headerImg.src = cachedImage ? cachedImage.url : `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
   }
 
   try {
@@ -457,46 +665,92 @@ async function openChat(jid) {
     if (!res.ok) throw new Error("Não foi possível carregar a conversa");
 
     const data = await res.json();
-    const chatContainer = document.getElementById("chat-history");
-    
-    // Atualiza header
-    document.querySelector("#chat-header .client-name").textContent = data.name;
-    document.querySelector("#chat-header .user-pfp").src = data.img || 'https://i.pinimg.com/736x/2f/15/f2/2f15f2e8c688b3120d3d26467b06330c.jpg';
-   
+    headerName.textContent = data.name;
+
+    // Atualiza imagem
+    try {
+      const imgRes = await fetch(`/update-profile-picture/${jid}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      let imgUrl;
+
+      if (imgRes.status === 204) {
+        imgUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+      } else {
+        const contentType = imgRes.headers.get("content-type") || "";
+        imgUrl = contentType.includes("application/json") ? (await imgRes.json()).img : `/profile-pics/${encodeURIComponent(jid)}.jpg`;
+      }
+
+      headerImg.src = imgUrl;
+      imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
+    } catch {
+      headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+    }
+
+    chatHeaderCache[jid] = { name: data.name, img: headerImg.src };
     renderStatusButtons(data);
-    
-    // Limpa mensagens antigas
+
+    // Renderiza mensagens
     chatContainer.innerHTML = "";
-
-    // Adiciona mensagens
-    const fragment = document.createDocumentFragment();
-    data.messages.forEach(msg => {
-      const div = document.createElement("div");
-      div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-      const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-      div.innerHTML = `
-        <p class="msg-bubble-text">${msg.text}</p>
-        <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-      `;
-      fragment.appendChild(div);
-    });
-
-    chatContainer.appendChild(fragment);
+    renderMessages(chatContainer, data.messages);
     lastMessageCountMap[jid] = data.messages.length;
 
-    // Scroll imediato após renderizar
-    requestAnimationFrame(() => {
-      scrollToBottom(false);
-    });
+    requestAnimationFrame(() => scrollToBottom(false));
 
   } catch (err) {
     console.error("Erro ao abrir conversa:", err);
   }
 }
 
-// updateChat atualizado
+// ===== ATUALIZAR CHAT =====
+// async function updateChat(jid) {
+//   const token = getToken();
+//   if (!token) return;
+
+//   const chatContainer = document.getElementById("chat-history");
+//   if (!chatContainer) return;
+
+//   try {
+//     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
+//       headers: { Authorization: `Bearer ${token}` }
+//     });
+//     if (!res.ok) return;
+
+//     const data = await res.json();
+//     if (!data.messages || !Array.isArray(data.messages)) return;
+
+//     const lastMessageCount = lastMessageCountMap[jid] || 0;
+//     if (data.messages.length > lastMessageCount) {
+//       const newMessages = data.messages.slice(lastMessageCount);
+
+//       const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
+
+//       newMessages.forEach(msg => {
+//         const div = document.createElement("div");
+//         div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+//         const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+//         div.innerHTML = `
+//           <p class="msg-bubble-text">${msg.text}</p>
+//           <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+//         `;
+//         chatContainer.appendChild(div);
+//       });
+
+//       if (isNearBottom) {
+//         scrollToBottom(true);
+//         setTimeout(() => scrollToBottom(true), 50);
+//       }
+
+//       lastMessageCountMap[jid] = data.messages.length;
+//     }
+
+//   } catch (err) {
+//     console.error("Erro ao atualizar chat:", err);
+//   }
+// }
+
 async function updateChat(jid) {
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+  const token = getToken();
   if (!token) return;
 
   const chatContainer = document.getElementById("chat-history");
@@ -512,120 +766,112 @@ async function updateChat(jid) {
     if (!data.messages || !Array.isArray(data.messages)) return;
 
     const lastMessageCount = lastMessageCountMap[jid] || 0;
-    if (data.messages.length > lastMessageCount) {
-      const newMessages = data.messages.slice(lastMessageCount);
+    const newMessages = data.messages.slice(lastMessageCount);
 
-      // Verifica se está próximo do fim (100px de margem)
+    if (newMessages.length > 0) {
+      renderMessages(chatContainer, newMessages);
+
       const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
-
-      newMessages.forEach(msg => {
-        const div = document.createElement("div");
-        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-        div.innerHTML = `
-          <p class="msg-bubble-text">${msg.text}</p>
-          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-        `;
-        chatContainer.appendChild(div);
-      });
-
-      // Só rola se estava perto do fim
-      if (isNearBottom) {
-        scrollToBottom(true); // com smooth scroll
-      }
+      if (isNearBottom) scrollToBottom(true);
 
       lastMessageCountMap[jid] = data.messages.length;
     }
-
   } catch (err) {
     console.error("Erro ao atualizar chat:", err);
   }
 }
 
-// Atualiza a função updateChat
-async function updateChat(jid) {
-  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-  if (!token) return;
+// ===== ABRIR CONFIGURAÇÕES =====
+var settingsOpen = false;
 
-  const chatContainer = document.getElementById("chat-history");
-  if (!chatContainer) return;
-
-  try {
-    const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!res.ok) return;
-
-    const data = await res.json();
-    if (!data.messages || !Array.isArray(data.messages)) return;
-
-    const lastMessageCount = lastMessageCountMap[jid] || 0;
-    if (data.messages.length > lastMessageCount) {
-      const newMessages = data.messages.slice(lastMessageCount);
-
-      // Verifica se usuário está próximo do fim (aumentei de 50 para 100px)
-      const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
-
-      newMessages.forEach(msg => {
-        const div = document.createElement("div");
-        div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-        const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-        div.innerHTML = `
-          <p class="msg-bubble-text">${msg.text}</p>
-          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-        `;
-        chatContainer.appendChild(div);
-      });
-
-      // Rola se estava próximo do final
-      if (isNearBottom) {
-        scrollToBottom(true);
-        // Tenta novamente após um delay curto
-        setTimeout(() => scrollToBottom(true), 50);
-      }
-
-      lastMessageCountMap[jid] = data.messages.length;
-    }
-
-  } catch (err) {
-    console.error("Erro ao atualizar chat:", err);
-  }
-}
-var open = false;
-
-function openSettings(){
+function openSettings() {
   const configButton = document.getElementById("config-menu");
 
-  if (!open){
+  if (!settingsOpen) {
     configButton.style.display = "block";
-    open = true; 
-  }else {
+    settingsOpen = true; 
+  } else {
     configButton.style.display = "none";
-    open = false;
+    settingsOpen = false;
   }
 }
 
+// ===== ABRIR STATUS =====
 var statusOpen = false;
 
-function openStatus(){
+function openStatus() {
   const statusButton = document.getElementById("status-buttons");
 
-  if (!statusOpen){
+  if (!statusOpen) {
     statusButton.style.display = "flex";
     statusOpen = true; 
-  }else {
+  } else {
     statusButton.style.display = "none";
     statusOpen = false;
-
   }
-
 }
 
-// ===== Atualizações automáticas =====
-setInterval(fetchConversations, 2000); // atualiza lista de chats
+// ===== ENVIO DE MENSAGENS =====
+
+async function sendMessage() {
+  const jid = currentChat;
+  const text = document.getElementById("text").value.trim();
+
+  if (!jid) return alert("Selecione uma conversa primeiro");
+  if (!text) return;
+
+  try {
+    const res = await fetch("/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${getToken()}`
+      },
+      body: JSON.stringify({ jid, text })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      // Adiciona a mensagem no chat imediatamente
+      const chatContainer = document.getElementById("chat-history");
+      const div = document.createElement("div");
+      div.className = "msg-bubble";
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      div.innerHTML = `<p class="msg-bubble-text">${text}</p>
+                       <p class="msg-hour">${time}</p>`;
+      chatContainer.appendChild(div);
+      scrollToBottom(true);
+      document.getElementById("text").value = "";
+    } else {
+      alert("Erro ao enviar mensagem: " + (data.error || "Tente novamente"));
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Erro ao enviar mensagem. Veja o console.");
+  }
+}
+
+textInput.addEventListener("keypress", async (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    await sendMessage();
+  }
+});
+
+// ===== CHAMADAS =====
+callButton.addEventListener("click", () => {
+  if (!currentChat) return alert("Selecione um contato primeiro");
+  // Se o JID tiver o número, podemos extrair
+  const number = currentChat.split("@")[0];
+  window.location.href = `tel:${number}`;
+});
+
+// ===== ATUALIZAÇÕES AUTOMÁTICAS =====
+setInterval(fetchConversations, 2000);
 setInterval(() => {
   if (currentChat) updateChat(currentChat);
 }, 1000);
 
-// Inicializa
-fetchConversations();
+// ===== INICIALIZA A APLICAÇÃO =====
+initializeApp();
+checkChat();
