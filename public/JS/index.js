@@ -257,6 +257,8 @@ async function deleteUser() {
 
 // ===== DELETAR CONVERSA =====
 async function deleteConversation(jid) {
+  const more = document.getElementById("more-chat");
+  const header = document.getElementById("chat-header");
   const token = getToken();
   
   if (!token) {
@@ -286,6 +288,9 @@ async function deleteConversation(jid) {
 
   if (res.ok) {
     alert("Conversa deletada com sucesso");
+    moreOpened = false;
+    more.style.display = "none";
+    header.style.visibility = "visible";
     fetchConversations();
     document.getElementById("chat").style.display = "none";
     currentChat = null;
@@ -457,7 +462,10 @@ function renderStatusButtons(c) {
 
 function renderMessages(chatContainer, messages) {
   messages.forEach(msg => {
-    // Evita duplicação
+    // Evita renderizar novamente mensagens fromMe enviadas nesta sessão
+    if (msg.fromMe && sentThisSession.includes(msg.messageId)) return;
+
+    // Evita duplicação pelo DOM
     if (!document.getElementById(msg.messageId)) {
       const div = document.createElement("div");
       div.id = msg.messageId;
@@ -842,6 +850,9 @@ async function sendMessage() {
       chatContainer.appendChild(div);
       scrollToBottom(true);
       document.getElementById("text").value = "";
+
+      // Salva na lista de mensagens enviadas nesta sessão
+      sentThisSession.push(data.messageId); // data.messageId deve vir do backend
     } else {
       alert("Erro ao enviar mensagem: " + (data.error || "Tente novamente"));
     }
@@ -856,14 +867,6 @@ textInput.addEventListener("keypress", async (e) => {
     e.preventDefault();
     await sendMessage();
   }
-});
-
-// ===== CHAMADAS =====
-callButton.addEventListener("click", () => {
-  if (!currentChat) return alert("Selecione um contato primeiro");
-  // Se o JID tiver o número, podemos extrair
-  const number = currentChat.split("@")[0];
-  window.location.href = `tel:${number}`;
 });
 
 // ===== ATUALIZAÇÕES AUTOMÁTICAS =====

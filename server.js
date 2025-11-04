@@ -114,42 +114,42 @@ const initWASocket = async () => {
   });
 
   sock.ev.on("messages.upsert", async ({ messages: newMessages }) => {
-  for (const msg of newMessages) {
-    const jid = msg.key.remoteJid;
-    if (!msg.message) continue;
-    if (jid === "status@broadcast") continue;
+    for (const msg of newMessages) {
+      const jid = msg.key.remoteJid;
+      if (!msg.message) continue;
+      if (jid === "status@broadcast") continue;
 
-    const messageId = msg.key.id;
-    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
-    const fromMe = msg.key.fromMe;
+      const messageId = msg.key.id;
+      const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+      const fromMe = msg.key.fromMe;
 
-    if (!text) continue;
+      if (!text) continue;
 
-    let conv = await Conversation.findOne({ jid });
-    if (!conv) {
-      conv = new Conversation({
-        jid,
-        name: msg.pushName || "Usuário",
-        status: "queue",
-        messages: [],
+      let conv = await Conversation.findOne({ jid });
+      if (!conv) {
+        conv = new Conversation({
+          jid,
+          name: msg.pushName || "Usuário",
+          status: "queue",
+          messages: [],
+        });
+      }
+
+      // ✅ Ignora mensagens fromMe duplicadas
+      const alreadyExists = conv.messages.some(m => m.messageId === messageId);
+      if (alreadyExists) continue;
+
+      conv.messages.push({
+        text,
+        fromMe,
+        timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now(),
+        messageId
       });
+
+      await conv.save();
+      console.log(`💬 Nova mensagem de ${fromMe ? "eu" : msg.pushName || jid} (${jid})`);
     }
-
-    // ✅ Ignora mensagens fromMe duplicadas
-    const alreadyExists = conv.messages.some(m => m.messageId === messageId);
-    if (alreadyExists) continue;
-
-    conv.messages.push({
-      text,
-      fromMe,
-      timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now(),
-      messageId
-    });
-
-    await conv.save();
-    console.log(`💬 Nova mensagem de ${fromMe ? "eu" : msg.pushName || jid} (${jid})`);
-  }
-});
+  });
 
 
 
