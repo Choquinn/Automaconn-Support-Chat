@@ -159,6 +159,7 @@
   #text {
     margin: 1.8em;
     scale: 1.3;
+    height: 3em;
     margin-left: 2em;
     border: none;
     outline: none;
@@ -359,6 +360,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    width: 75%;
     background-color: #b6b6b6;
   }
 
@@ -402,6 +404,27 @@
   #mais-sym.opened {
     cursor: pointer;
     transform: rotate(180deg);
+  }
+
+  .msg-info {
+    display: flex;
+    position: relative;
+    right: 1.9em;
+    justify-content: end;
+  }
+
+  .msg-info.client {
+    display: flex;
+    position: relative;
+    right: 0.3em;
+    justify-content: start;
+  }
+
+  .msg-status {
+    position: relative;
+    height: 13px;
+    top: 0.8em;
+    left: 1.3em;
   }
 
   #more-chat {
@@ -461,8 +484,9 @@
     background-color: #3e5641;
     color: #fff;
     width: fit-content;
-    max-width: 60%;
+    max-width: 50%;
     padding: 0.5em 2.5em;
+    padding-right: 0;
     border-radius: 1em;
     align-self: flex-end; /* mensagens do atendente à direita */
   }
@@ -477,6 +501,7 @@
     right: 1.6em;
     margin-bottom: 0;
     font-size: 16px;
+    overflow-wrap: break-word;
   }
 
   .msg-hour {
@@ -487,7 +512,7 @@
     position: relative;
     right: unset;
     top: 1em;
-    left: 1.8em;
+    left: 1.4em;
   }
 
   .msg-hour.client {
@@ -520,6 +545,7 @@
     flex: 1;
     border: none;
     outline: none;
+    height: 3em;
     font-size: 16px;
   }
 
@@ -609,13 +635,16 @@
 
   .configbtn.exit {
     background-color: red;
+    position: relative;
+    top: 0.5em;
   }
 
   .configbtn.logout {
+    display: block;
     background-color: #000;
     width: 10em;
     position: relative;
-    top: 5em;
+    top: 4.5em;
     right: 11em;
   }
 
@@ -624,7 +653,7 @@
     background: #ff0000;
     width: 10em;
     position: relative;
-    top: 6em;
+    top: 5em;
     right: 3.4em;
   }
 
@@ -633,7 +662,7 @@
     background: #109d2f;
     width: 11em;
     position: relative;
-    top: 10em;
+    top: 9em;
     right: 15.4em;
   }
 

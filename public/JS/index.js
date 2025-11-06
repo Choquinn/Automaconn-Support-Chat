@@ -1,14 +1,63 @@
 // ===== CONSTANTES E VARIÁVEIS GLOBAIS =====
 const deleteButton = document.getElementById("deleteBtn");
 const addButton = document.getElementById("addBtn");
-const textInput = document.getElementById("text");
-const callButton = document.getElementById("chamada-sym");
+const exitButton = document.getElementById("exit");
+const textInput = document.getElementById("text"); // id do seu index.html
 const imageCache = {};
 let currentTab = 1;
-let currentChat = null;
+let isLoading = true;
+let currentChat = null; // ainda mantido para compatibilidade com outras partes
+let currentChatJid = null; // jid do chat aberto (padronizado)
 let chatHeaderCache = {};
 let lastMessageCountMap = {};
-let isLoading = true;
+let sentThisSession = [];
+let messageStatusMap = {}; // armazena o status atual de cada mensagem
+var moreOpened = false;
+
+window.changeTab = changeTab;
+window.openSettings = openSettings;
+window.expandContact = expandContact;
+window.openStatus = openStatus;
+window.updateStatus = updateStatus;
+window.quitSession = quitSession;
+window.deleteMenu = deleteMenu;
+window.addUser = addUser;
+window.deleteUser = deleteUser;
+window.cancelDelete = cancelDelete;
+window.deleteConversation = deleteConversation;
+
+import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
+
+// Conecta ao socket.io
+const socket = io("http://localhost:3000", {
+  transports: ["websocket"],
+});
+
+socket.on("connect", () => {
+  console.log("✅ Conectado ao servidor Socket.IO");
+});
+// Quando uma nova mensagem chegar
+socket.on("message:new", (msg) => {
+  // Evita duplicar mensagens enviadas por mim
+  if (msg.fromMe && sentThisSession.includes(msg.messageId)) return;
+
+  if (msg && msg.jid === currentChatJid) {
+    renderMessage(msg);
+    scrollToBottom(true);
+  }
+
+  updateConversationPreview(msg);
+});
+
+// Atualização de status (pendente, enviada, entregue, lida)
+socket.on("message:status", ({ messageId, status }) => {
+  console.log("🔄 Atualização de status recebida:", messageId, status);
+  // Atualiza o mapa interno
+  messageStatusMap[messageId] = status;
+
+  // Aplica visualmente no DOM imediatamente
+  applyMessageStatus(messageId, status);
+});
 
 // Variáveis de roles
 var sup = false;
@@ -17,7 +66,7 @@ var vend = false;
 var at = false;
 var admin = false;
 
-// ===== FUNÇÕES DE TOKEN (sem localStorage) =====
+// ===== FUNÇÕES DE TOKEN =====
 let authToken = null;
 
 function getToken() {
@@ -57,10 +106,63 @@ function hideLoading() {
   }
 }
 
+function applyMessageStatus(messageId, status) {
+  const msgDiv = document.getElementById(messageId);
+  if (!msgDiv) return;
+
+  const statusImg = msgDiv.querySelector(".msg-status");
+  if (!statusImg) return;
+
+  statusImg.src = `../images/${status}.png`;
+}
+
+function createMessageElement(msg) {
+  const div = document.createElement("div");
+  div.id = msg.messageId || `msg-${Date.now()}`;
+  div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+
+  const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (msg.type === "sticker" || msg.sticker || msg.url?.endsWith(".webp")) {
+    // figurinha
+    const stickerUrl = msg.url || msg.sticker || msg.contentUrl; // compatibilidade
+    // container with image
+    div.innerHTML = `
+      <div class="sticker-wrapper">
+        <img class="sticker-img" src="${escapeHtml(
+          stickerUrl
+        )}" alt="figurinha" />
+      </div>
+      <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+    `;
+
+    // fallback onerror -> replace with a tiny "não carregou"
+    const tempImg = div.querySelector(".sticker-img");
+    tempImg.onerror = () => {
+      tempImg.onerror = null;
+      tempImg.src = "/images/sticker-fallback.png"; // opcional: imagem local de fallback
+    };
+  } else {
+    // texto normal
+    const textHtml = `<p class="msg-bubble-text">${escapeHtml(
+      msg.text || ""
+    )}</p>`;
+    const timeHtml = `<p class="msg-hour ${
+      msg.fromMe ? "" : "client"
+    }">${time}</p>`;
+    div.innerHTML = textHtml + timeHtml;
+  }
+
+  return div;
+}
+
 // ===== INICIALIZAÇÃO =====
 async function initializeApp() {
   showLoading();
-  
+
   const token = getToken();
   if (!token) {
     window.location.href = "/login.html";
@@ -68,21 +170,12 @@ async function initializeApp() {
   }
 
   try {
-    // Checa roles do usuário
     await checkUserRoles(token);
-    
-    // Checa conexão
     await checkConnection();
-    
-    // Carrega conversas iniciais
     await fetchConversations();
-    
-    // Pré-carrega imagens das conversas visíveis
     await preloadVisibleImages();
-    
     isLoading = false;
     hideLoading();
-    
   } catch (error) {
     console.error("Erro na inicialização:", error);
     hideLoading();
@@ -94,13 +187,13 @@ async function initializeApp() {
 async function checkUserRoles(token) {
   try {
     const res = await fetch("/me", {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     if (!res.ok) {
       throw new Error("Erro ao verificar usuário");
     }
-    
+
     const user = await res.json();
 
     sup = user.role.includes(1);
@@ -110,8 +203,9 @@ async function checkUserRoles(token) {
     admin = user.role.includes(5);
 
     if (admin) {
-      deleteButton.style.display = 'block';
-      addButton.style.display = 'block';
+      deleteButton.style.display = "block";
+      exitButton.style.display = "block";
+      addButton.style.display = "block";
     }
   } catch (error) {
     console.error("Erro ao verificar roles:", error);
@@ -136,16 +230,14 @@ async function checkConnection() {
 
 // ===== PRÉ-CARREGAMENTO DE IMAGENS =====
 async function preloadVisibleImages() {
-  const visibleChats = document.querySelectorAll(".menu-chats");
+  const visibleChats = document.querySelectorAll(".menu-chats img.user-pfp");
   const promises = [];
-  
-  visibleChats.forEach((chatDiv) => {
-    const jid = chatDiv.getAttribute("data-jid");
-    if (jid) {
-      promises.push(updateProfilePicture(jid));
-    }
+
+  visibleChats.forEach((img) => {
+    const jid = img.getAttribute("data-jid");
+    if (jid) promises.push(updateProfilePicture(jid));
   });
-  
+
   await Promise.all(promises);
 }
 
@@ -159,7 +251,6 @@ function changeTab(tab) {
 }
 
 // ===== LOGOUT =====
-// Inicializa o listener apenas uma vez
 document.addEventListener("DOMContentLoaded", () => {
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) {
@@ -178,7 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// ===== ADICIONAR USUÁRIO =====
+// ===== ADICIONAR / DELETAR USUÁRIO =====
 async function addUser() {
   const token = getToken();
   if (!token) return;
@@ -190,22 +281,20 @@ async function addUser() {
   }
 }
 
-// ===== DELETAR USUÁRIO - MENU =====
 async function deleteMenu() {
   const deleteMenuEl = document.getElementById("delete-menu");
   const res = await fetch("/users");
   const users = await res.json();
   const div = document.getElementById("delete-options");
 
-  deleteMenuEl.style.display = 'block';
-  div.innerHTML = '';
-  
+  deleteMenuEl.style.display = "block";
+  div.innerHTML = "";
+
   users.forEach((u) => {
     div.innerHTML += `<option value="${u.number}">${u.username}</option>`;
   });
 }
 
-// ===== DELETAR USUÁRIO =====
 async function deleteUser() {
   const select = document.getElementById("delete-sel");
   const userNumber = select.value;
@@ -221,18 +310,18 @@ async function deleteUser() {
     return;
   }
 
-  const meRes = await fetch("/me", { 
-    headers: { Authorization: `Bearer ${token}` } 
+  const meRes = await fetch("/me", {
+    headers: { Authorization: `Bearer ${token}` },
   });
   const me = await meRes.json();
-  
+
   if (!me.role.includes(5)) {
     alert("Você não tem permissão para fazer essa ação");
     return;
   }
 
-  const userRes = await fetch(`/user-id/${userNumber}`, { 
-    headers: { Authorization: `Bearer ${token}` }
+  const userRes = await fetch(`/user-id/${userNumber}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
   const userData = await userRes.json();
 
@@ -243,7 +332,7 @@ async function deleteUser() {
 
   const res = await fetch(`/users/${userData.id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (res.ok) {
@@ -260,19 +349,14 @@ async function deleteConversation(jid) {
   const more = document.getElementById("more-chat");
   const header = document.getElementById("chat-header");
   const token = getToken();
-  
+
   if (!token) {
     alert("Você não está logado");
     return;
   }
 
-  const meRes = await fetch("/me", { 
-    headers: { Authorization: `Bearer ${token}` } 
-  });
-  const me = await meRes.json();
-
-  const convRes = await fetch(`/conversation-id/${jid}`, { 
-    headers: { Authorization: `Bearer ${token}` }
+  const convRes = await fetch(`/conversation-id/${jid}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
   const convData = await convRes.json();
 
@@ -283,17 +367,20 @@ async function deleteConversation(jid) {
 
   const res = await fetch(`/conversations/${convData.id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (res.ok) {
+    moreOpened = true;
     alert("Conversa deletada com sucesso");
-    moreOpened = false;
     more.style.display = "none";
     header.style.visibility = "visible";
     fetchConversations();
-    document.getElementById("chat").style.display = "none";
+    expandContact();
+    const chatEl = document.getElementById("chat");
+    if (chatEl) chatEl.style.display = "none";
     currentChat = null;
+    currentChatJid = null;
   } else {
     const err = await res.json();
     alert("Erro ao deletar essa conversa: " + (err.error || "Tente novamente"));
@@ -303,7 +390,7 @@ async function deleteConversation(jid) {
 // ===== CANCELAR DELETE =====
 function cancelDelete() {
   const deleteMenuEl = document.getElementById("delete-menu");
-  deleteMenuEl.style.display = 'none';
+  if (deleteMenuEl) deleteMenuEl.style.display = "none";
 }
 
 // ===== SAIR DA SESSÃO =====
@@ -316,9 +403,9 @@ async function quitSession() {
 function checkChat() {
   const chatEl = document.getElementById("chat");
   if (!document.querySelector(".menu-chats.selected")) {
-    chatEl.style.display = "none";
+    if (chatEl) chatEl.style.display = "none";
   } else {
-    chatEl.style.display = "flex";
+    if (chatEl) chatEl.style.display = "flex";
   }
 }
 
@@ -329,18 +416,24 @@ async function updateProfilePicture(jid) {
     if (!imgEl) return;
 
     const cacheEntry = imageCache[jid];
-    const cacheValid = cacheEntry && (Date.now() - cacheEntry.timestamp < 60 * 60 * 1000);
+    const cacheValid =
+      cacheEntry && Date.now() - cacheEntry.timestamp < 60 * 60 * 1000;
 
     if (cacheValid && imgEl.src.includes(cacheEntry.url)) {
       return;
     }
 
-    const res = await fetch(`/update-profile-picture/${jid}`, {
-      headers: { Authorization: `Bearer ${getToken()}` }
-    });
+    const res = await fetch(
+      `/update-profile-picture/${encodeURIComponent(jid)}`,
+      {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      }
+    );
 
     if (res.status === 204) {
-      imgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+      imgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        jid
+      )}&background=random`;
       imageCache[jid] = { url: imgEl.src, timestamp: Date.now() };
       return;
     }
@@ -359,7 +452,6 @@ async function updateProfilePicture(jid) {
       imgEl.src = imgUrl;
       imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
     }
-
   } catch (err) {
     console.error(`Erro ao atualizar imagem de ${jid}:`, err);
   }
@@ -385,23 +477,31 @@ async function fetchConversations() {
 
   try {
     const res = await fetch("/conversations", {
-      headers: { "Authorization": "Bearer " + token }
+      headers: { Authorization: "Bearer " + token },
     });
 
     if (!res.ok) throw new Error("Erro ao buscar conversas");
     const data = await res.json();
 
+    const dataWithoutGroups = data.filter(
+      (c) => !c.jid.endsWith("@g.us") && !c.jid.endsWith("@newsletter")
+    );
+
     const container = document.getElementById("menu-chat-block");
+    if (!container) return;
     const existingChats = {};
 
-    container.querySelectorAll(".menu-chats").forEach(div => {
+    container.querySelectorAll(".menu-chats").forEach((div) => {
       existingChats[div.getAttribute("data-jid")] = div;
     });
 
     let filtered = [];
-    if (currentTab === 1) filtered = data.filter(c => c.status === "active");
-    if (currentTab === 2) filtered = data.filter(c => c.status === "queue");
-    if (currentTab === 3) filtered = data.filter(c => c.status === "closed");
+    if (currentTab === 1)
+      filtered = dataWithoutGroups.filter((c) => c.status === "active");
+    if (currentTab === 2)
+      filtered = dataWithoutGroups.filter((c) => c.status === "queue");
+    if (currentTab === 3)
+      filtered = dataWithoutGroups.filter((c) => c.status === "closed");
 
     for (const c of filtered) {
       let div = existingChats[c.jid];
@@ -412,7 +512,8 @@ async function fetchConversations() {
         div.setAttribute("data-jid", c.jid);
         div.innerHTML = `
           <img class="user-pfp" data-jid="${c.jid}" 
-            src="${c.img || `/profile-pics/${encodeURIComponent(c.jid)}.jpg`}" />
+            src="${c.img || `/profile-pics/${encodeURIComponent(c.jid)}.jpg`}" 
+            onerror="null;"/>
           <h2 class="client-name"></h2>
           <p class="latest-msg"></p>
         `;
@@ -420,15 +521,19 @@ async function fetchConversations() {
 
         div.addEventListener("click", () => {
           currentChat = c.jid;
+          currentChatJid = c.jid; // define o JID do chat atual
           openChat(c.jid);
-          document.querySelectorAll(".menu-chats").forEach(el => el.classList.remove("selected"));
+          document
+            .querySelectorAll(".menu-chats")
+            .forEach((el) => el.classList.remove("selected"));
           div.classList.add("selected");
           checkChat();
         });
       }
 
       div.querySelector(".client-name").textContent = c.name;
-      div.querySelector(".latest-msg").textContent = c.messages.slice(-1)[0]?.text || "";
+      div.querySelector(".latest-msg").textContent =
+        c.messages.slice(-1)[0]?.text || "";
 
       if (currentChat === c.jid) {
         div.classList.add("selected");
@@ -439,12 +544,11 @@ async function fetchConversations() {
       safeUpdateProfilePicture(c.jid);
     }
 
-    Object.keys(existingChats).forEach(jid => {
-      if (!filtered.find(c => c.jid === jid)) {
+    Object.keys(existingChats).forEach((jid) => {
+      if (!filtered.find((c) => c.jid === jid)) {
         existingChats[jid].remove();
       }
     });
-
   } catch (err) {
     console.error("Erro ao buscar conversas:", err);
   }
@@ -453,6 +557,7 @@ async function fetchConversations() {
 // ===== RENDERIZAR BOTÕES DE STATUS =====
 function renderStatusButtons(c) {
   const statusContainer = document.getElementById("status-buttons");
+  if (!statusContainer) return;
   statusContainer.innerHTML = `
     <button id="ativar" onclick="updateStatus('${c.jid}', 'active')">Ativar</button>
     <button id="fila" onclick="updateStatus('${c.jid}', 'queue')">Fila</button>
@@ -460,45 +565,154 @@ function renderStatusButtons(c) {
   `;
 }
 
+// Renderiza várias mensagens (historico)
 function renderMessages(chatContainer, messages) {
-  messages.forEach(msg => {
-    // Evita renderizar novamente mensagens fromMe enviadas nesta sessão
+  if (!chatContainer || !messages || !Array.isArray(messages)) return;
+
+  chatContainer.innerHTML = "";
+
+  messages.forEach((msg) => {
+    // Evita duplicar mensagens enviadas por mim
     if (msg.fromMe && sentThisSession.includes(msg.messageId)) return;
 
-    // Evita duplicação pelo DOM
-    if (!document.getElementById(msg.messageId)) {
+    if (msg.type === "sticker") {
       const div = document.createElement("div");
-      div.id = msg.messageId;
-      div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-      const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      div.className = `msg ${msg.fromMe ? "me" : "client"}`;
       div.innerHTML = `
-        <p class="msg-bubble-text">${msg.text}</p>
+        <div class="sticker-wrapper">
+          <img class="sticker-img" src="${msg.url}" alt="figurinha" />
+        </div>
         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
       `;
-      chatContainer.appendChild(div);
+      chatHistory.appendChild(div);
+      return;
     }
+
+    const div = document.createElement("div");
+    div.id = msg.messageId;
+    div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+    const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    if (msg.fromMe) {
+      div.innerHTML = `
+        <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+        <span class="msg-info">
+          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+          <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
+        </span>
+      `;
+    }else {
+      div.innerHTML = `
+        <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+        <span class="msg-info client">
+          <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+        </span>
+      `;
+    }
+    chatContainer.appendChild(div);
   });
+
+  scrollToBottom(false);
+}
+
+// Renderiza uma única mensagem (usado por socket e por envio local)
+function renderMessage(msg) {
+  if (!msg || !msg.jid) return;
+  const chatContainer = document.getElementById("chat-history");
+  if (!chatContainer) return;
+
+  if (msg.type === "sticker") {
+    const msgDiv = document.createElement("div");
+    msgDiv.className = `msg ${msg.fromMe ? "me" : "client"}`;
+
+    const stickerImg = document.createElement("img");
+    stickerImg.src = msg.url;
+    stickerImg.alt = "figurinha";
+    stickerImg.className = "sticker-img";
+
+    // fallback caso falhe
+    stickerImg.onerror = () => {
+      stickerImg.src = "/images/sticker-fallback.png";
+    };
+
+    msgDiv.appendChild(stickerImg);
+
+    // horário
+    const hourEl = document.createElement("p");
+    hourEl.className = `msg-hour ${msg.fromMe ? "" : "client"}`;
+    hourEl.textContent = time;
+    msgDiv.appendChild(hourEl);
+
+    chatHistory.appendChild(msgDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight; // auto scroll
+    return;
+  }
+
+  // Evita duplicatas
+  if (document.getElementById(msg.messageId)) return;
+
+  const div = document.createElement("div");
+  div.id = msg.messageId;
+  div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+  const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (msg.fromMe) {
+    div.innerHTML = `
+      <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+      <span class="msg-info">
+        <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+        <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
+      </span>
+    `;
+  }else {
+    div.innerHTML = `
+      <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+      <span class="msg-info client">
+        <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+      </span>
+    `;
+  }
+
+  chatContainer.appendChild(div);
+
+  // 🔽 Rola após renderização completa
+  setTimeout(() => {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }, 50);
+}
+
+// Atualiza preview de conversa (simples: recarrega lista)
+function updateConversationPreview(msg) {
+  // Implementação simples: refetch da lista.
+  // Pode ser substituída por atualização incremental para mais performance.
+  fetchConversations();
 }
 
 // ===== ATUALIZAR STATUS =====
 async function updateStatus(jid, status) {
   await fetch(`/conversations/${jid}/status`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json", 
-      "Authorization": "Bearer " + getToken() 
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + getToken(),
     },
-    body: JSON.stringify({ status })
+    body: JSON.stringify({ status }),
   });
-  
-  switch(status) {
-    case 'active':
+
+  switch (status) {
+    case "active":
       changeTab(1);
       break;
-    case 'queue':
+    case "queue":
       changeTab(2);
       break;
-    case 'closed':
+    case "closed":
       changeTab(3);
       break;
   }
@@ -509,39 +723,37 @@ async function updateStatus(jid, status) {
 function scrollToBottom(smooth = false) {
   const chatContainer = document.getElementById("chat-history");
   if (!chatContainer) return;
-  
-  if (smooth) {
+
+  const doScroll = () => {
     chatContainer.scrollTo({
       top: chatContainer.scrollHeight,
-      behavior: 'smooth'
+      behavior: smooth ? "smooth" : "auto",
     });
-  } else {
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-  }
+  };
+
+  requestAnimationFrame(doScroll);
+  setTimeout(doScroll, 100); // garante mesmo se o layout demorar
 }
 
-// ===== EXPANDIR CONTATO (CORRIGIDO) =====
-var moreOpened = false;
-
+// ===== EXPANDIR CONTATO =====
 function expandContact() {
   const more = document.getElementById("more-chat");
   const button = document.getElementById("mais-sym");
   const buttons = document.getElementById("more-buttons");
   const header = document.getElementById("chat-header");
   const div = document.querySelector(".menu-chats.selected");
-  
-  if (!div) return;
-  
-  const jid = div.getAttribute("data-jid");
 
-  if (!moreOpened) {
+  if (moreOpened === false) {
+    const jid = div.getAttribute("data-jid");
     buttons.innerHTML = `
       <button id="delete-conv" class="configbtn delete" onclick="deleteConversation('${jid}')">Deletar conversa</button>
     `;
-    header.style.visibility = "hidden";
-    more.style.display = "block";
-    button.style.visibility = "visible";
-    button.classList.add("opened");
+    if (header) header.style.visibility = "hidden";
+    if (more) more.style.display = "block";
+    if (button) {
+      button.style.visibility = "visible";
+      button.classList.add("opened");
+    }
     moreOpened = true;
   } else {
     more.style.display = "none";
@@ -551,212 +763,94 @@ function expandContact() {
   }
 }
 
-// ===== ABRIR CHAT =====
-// async function openChat(jid) {
-//   const token = getToken();
-//   if (!token) return window.location.href = "/login.html";
-
-//   const chatContainer = document.getElementById("chat-history");
-//   const headerName = document.getElementById("client-name");
-//   const headerImg = document.getElementById("pfp");
-
-//   headerImg.setAttribute('data-jid', jid);
-
-//   const cached = chatHeaderCache[jid];
-//   if (cached) {
-//     headerName.textContent = cached.name;
-//     headerImg.src = cached.img;
-//   } else {
-//     headerName.textContent = "Carregando...";
-//     const cachedImage = imageCache[jid];
-//     if (cachedImage) {
-//       headerImg.src = cachedImage.url;
-//     } else {
-//       headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
-//     }
-//   }
-
-//   try {
-//     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-//       headers: { Authorization: `Bearer ${token}` }
-//     });
-//     if (!res.ok) throw new Error("Não foi possível carregar a conversa");
-
-//     const data = await res.json();
-//     headerName.textContent = data.name;
-    
-//     try {
-//       const imgRes = await fetch(`/update-profile-picture/${jid}`, {
-//         headers: { Authorization: `Bearer ${token}` }
-//       });
-
-//       if (imgRes.status === 204) {
-//         headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
-//         imageCache[jid] = { url: headerImg.src, timestamp: Date.now() };
-//       } else {
-//         const contentType = imgRes.headers.get("content-type") || "";
-//         let imgUrl;
-
-//         if (contentType.includes("application/json")) {
-//           const imgData = await imgRes.json();
-//           imgUrl = imgData.img;
-//         } else {
-//           imgUrl = `/profile-pics/${encodeURIComponent(jid)}.jpg`;
-//         }
-
-//         headerImg.src = imgUrl;
-//         imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
-//       }
-//     } catch (imgErr) {
-//       console.error("Erro ao carregar imagem:", imgErr);
-//       headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
-//     }
-
-//     chatHeaderCache[jid] = {
-//       name: data.name,
-//       img: headerImg.src
-//     };
-
-//     renderStatusButtons(data);
-
-//     chatContainer.innerHTML = "";
-//     const fragment = document.createDocumentFragment();
-
-//     data.messages.forEach(msg => {
-//       const div = document.createElement("div");
-//       div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-//       const time = new Date(msg.timestamp)
-//         .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-//       div.innerHTML = `
-//         <p class="msg-bubble-text">${msg.text}</p>
-//         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-//       `;
-//       fragment.appendChild(div);
-//     });
-
-//     chatContainer.appendChild(fragment);
-//     lastMessageCountMap[jid] = data.messages.length;
-
-//     requestAnimationFrame(() => {
-//       scrollToBottom(false);
-//     });
-
-//   } catch (err) {
-//     console.error("Erro ao abrir conversa:", err);
-//   }
-// }
-
+// ===== ABRIR CONVERSA =====
 async function openChat(jid) {
   const token = getToken();
-  if (!token) return window.location.href = "/login.html";
+  if (!token) return (window.location.href = "/login.html");
 
   const chatContainer = document.getElementById("chat-history");
   const headerName = document.getElementById("client-name");
   const headerImg = document.getElementById("pfp");
 
-  headerImg.setAttribute('data-jid', jid);
+  if (headerImg) headerImg.setAttribute("data-jid", jid);
 
   const cached = chatHeaderCache[jid];
   if (cached) {
-    headerName.textContent = cached.name;
-    headerImg.src = cached.img;
+    if (headerName) headerName.textContent = cached.name;
+    if (headerImg) headerImg.src = cached.img;
   } else {
-    headerName.textContent = "Carregando...";
+    if (headerName) headerName.textContent = "Carregando...";
     const cachedImage = imageCache[jid];
-    headerImg.src = cachedImage ? cachedImage.url : `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+    if (headerImg)
+      headerImg.src = cachedImage
+        ? cachedImage.url
+        : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            jid
+          )}&background=random`;
   }
 
   try {
     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error("Não foi possível carregar a conversa");
 
     const data = await res.json();
-    headerName.textContent = data.name;
+    if (headerName) headerName.textContent = data.name;
 
-    // Atualiza imagem
+    // Atualiza imagem (tenta buscar no backend)
     try {
-      const imgRes = await fetch(`/update-profile-picture/${jid}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const imgRes = await fetch(
+        `/update-profile-picture/${encodeURIComponent(jid)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       let imgUrl;
 
       if (imgRes.status === 204) {
-        imgUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+        imgUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          data.name
+        )}&background=random`;
       } else {
         const contentType = imgRes.headers.get("content-type") || "";
-        imgUrl = contentType.includes("application/json") ? (await imgRes.json()).img : `/profile-pics/${encodeURIComponent(jid)}.jpg`;
+        imgUrl = contentType.includes("application/json")
+          ? (await imgRes.json()).img
+          : `/profile-pics/${encodeURIComponent(jid)}.jpg`;
       }
 
-      headerImg.src = imgUrl;
+      if (headerImg) headerImg.src = imgUrl;
       imageCache[jid] = { url: imgUrl, timestamp: Date.now() };
     } catch {
-      headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+      if (headerImg)
+        headerImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          data.name
+        )}&background=random`;
     }
 
-    chatHeaderCache[jid] = { name: data.name, img: headerImg.src };
+    chatHeaderCache[jid] = {
+      name: data.name,
+      img: headerImg ? headerImg.src : null,
+    };
     renderStatusButtons(data);
 
     // Renderiza mensagens
-    chatContainer.innerHTML = "";
-    renderMessages(chatContainer, data.messages);
-    lastMessageCountMap[jid] = data.messages.length;
+    if (chatContainer) {
+      chatContainer.innerHTML = "";
+      renderMessages(chatContainer, data.messages || []);
+    }
+    lastMessageCountMap[jid] = (data.messages || []).length;
 
-    requestAnimationFrame(() => scrollToBottom(false));
+    scrollToBottom(false);
 
+    currentChatJid = jid;
+    currentChat = jid;
   } catch (err) {
     console.error("Erro ao abrir conversa:", err);
   }
 }
 
-// ===== ATUALIZAR CHAT =====
-// async function updateChat(jid) {
-//   const token = getToken();
-//   if (!token) return;
-
-//   const chatContainer = document.getElementById("chat-history");
-//   if (!chatContainer) return;
-
-//   try {
-//     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-//       headers: { Authorization: `Bearer ${token}` }
-//     });
-//     if (!res.ok) return;
-
-//     const data = await res.json();
-//     if (!data.messages || !Array.isArray(data.messages)) return;
-
-//     const lastMessageCount = lastMessageCountMap[jid] || 0;
-//     if (data.messages.length > lastMessageCount) {
-//       const newMessages = data.messages.slice(lastMessageCount);
-
-//       const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
-
-//       newMessages.forEach(msg => {
-//         const div = document.createElement("div");
-//         div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-//         const time = new Date(msg.timestamp).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-//         div.innerHTML = `
-//           <p class="msg-bubble-text">${msg.text}</p>
-//           <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-//         `;
-//         chatContainer.appendChild(div);
-//       });
-
-//       if (isNearBottom) {
-//         scrollToBottom(true);
-//         setTimeout(() => scrollToBottom(true), 50);
-//       }
-
-//       lastMessageCountMap[jid] = data.messages.length;
-//     }
-
-//   } catch (err) {
-//     console.error("Erro ao atualizar chat:", err);
-//   }
-// }
-
+// ===== ATUALIZAR CHAT ABERTO =====
 async function updateChat(jid) {
   const token = getToken();
   if (!token) return;
@@ -766,7 +860,7 @@ async function updateChat(jid) {
 
   try {
     const res = await fetch(`/conversations/${encodeURIComponent(jid)}`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return;
 
@@ -779,7 +873,11 @@ async function updateChat(jid) {
     if (newMessages.length > 0) {
       renderMessages(chatContainer, newMessages);
 
-      const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 100;
+      const isNearBottom =
+        chatContainer.scrollHeight -
+          chatContainer.scrollTop -
+          chatContainer.clientHeight <
+        30;
       if (isNearBottom) scrollToBottom(true);
 
       lastMessageCountMap[jid] = data.messages.length;
@@ -789,15 +887,14 @@ async function updateChat(jid) {
   }
 }
 
-// ===== ABRIR CONFIGURAÇÕES =====
+// ===== ABRIR / FECHAR CONFIGURAÇÕES =====
 var settingsOpen = false;
-
 function openSettings() {
   const configButton = document.getElementById("config-menu");
-
+  if (!configButton) return;
   if (!settingsOpen) {
     configButton.style.display = "block";
-    settingsOpen = true; 
+    settingsOpen = true;
   } else {
     configButton.style.display = "none";
     settingsOpen = false;
@@ -806,13 +903,12 @@ function openSettings() {
 
 // ===== ABRIR STATUS =====
 var statusOpen = false;
-
 function openStatus() {
   const statusButton = document.getElementById("status-buttons");
-
+  if (!statusButton) return;
   if (!statusOpen) {
     statusButton.style.display = "flex";
-    statusOpen = true; 
+    statusOpen = true;
   } else {
     statusButton.style.display = "none";
     statusOpen = false;
@@ -820,61 +916,89 @@ function openStatus() {
 }
 
 // ===== ENVIO DE MENSAGENS =====
-
 async function sendMessage() {
-  const jid = currentChat;
-  const text = document.getElementById("text").value.trim();
+  const input = document.querySelector("#text");
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text || !currentChatJid) return;
 
-  if (!jid) return alert("Selecione uma conversa primeiro");
-  if (!text) return;
+  const token = getToken();
+  if (!token) return;
+
+  // Cria ID temporário e evita duplicatas
+  const tempId = `temp-${Date.now()}`;
+  sentThisSession.push(tempId);
+
+  // Renderiza imediatamente no chat local
+  renderMessage({
+    text,
+    fromMe: true,
+    name: "Você",
+    status: "pending",
+    messageId: tempId,
+    timestamp: Date.now(),
+    jid: currentChatJid,
+  });
+
+  // Limpa campo
+  input.value = "";
 
   try {
     const res = await fetch("/send", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${getToken()}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ jid, text })
+      body: JSON.stringify({ jid: currentChatJid, text }),
     });
 
     const data = await res.json();
-    if (data.success) {
-      // Adiciona a mensagem no chat imediatamente
-      const chatContainer = document.getElementById("chat-history");
-      const div = document.createElement("div");
-      div.className = "msg-bubble";
-      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      div.innerHTML = `<p class="msg-bubble-text">${text}</p>
-                       <p class="msg-hour">${time}</p>`;
-      chatContainer.appendChild(div);
-      scrollToBottom(true);
-      document.getElementById("text").value = "";
 
-      // Salva na lista de mensagens enviadas nesta sessão
-      sentThisSession.push(data.messageId); // data.messageId deve vir do backend
-    } else {
-      alert("Erro ao enviar mensagem: " + (data.error || "Tente novamente"));
+    if (data?.message?.messageId) {
+      const newId = data.message.messageId;
+
+      sentThisSession.push(newId);
+
+      const tempDiv = document.getElementById(tempId);
+      if (tempDiv) {
+        tempDiv.id = newId;
+      }
     }
   } catch (err) {
-    console.error(err);
-    alert("Erro ao enviar mensagem. Veja o console.");
+    console.error("Erro ao enviar mensagem:", err);
   }
 }
 
-textInput.addEventListener("keypress", async (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    await sendMessage();
-  }
-});
+// Atalho por enter
+if (textInput) {
+  textInput.addEventListener("keypress", async (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      await sendMessage();
+    }
+  });
+}
 
 // ===== ATUALIZAÇÕES AUTOMÁTICAS =====
 setInterval(fetchConversations, 2000);
 setInterval(() => {
-  if (currentChat) updateChat(currentChat);
-}, 1000);
+  if (!socket.connected && currentChatJid) {
+    updateChat(currentChatJid);
+  }
+}, 3000);
 
 // ===== INICIALIZA A APLICAÇÃO =====
 initializeApp();
 checkChat();
+
+// ===== UTILIDADES =====
+function escapeHtml(unsafe) {
+  if (!unsafe && unsafe !== 0) return "";
+  return String(unsafe)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}

@@ -66,3 +66,4 @@ session.data.json
 *.session.json
 
 /.env
+public/stickers

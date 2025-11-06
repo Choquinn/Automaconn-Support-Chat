@@ -8,10 +8,13 @@ const cors = require("cors");
 const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
-const { makeWASocket, Browsers, useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion } = require("baileys");
+const { makeWASocket, Browsers, useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion, downloadContentFromMessage } = require("baileys");
 const { v4: uuidv4 } = require("uuid");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const PROFILE_CACHE_DIR = path.join(__dirname, "public", "profile-pics");
+const STICKER_DIR = path.join(__dirname, "public", "stickers");
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
 require('./database.js');
@@ -25,7 +28,13 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.json());
 app.use(express.static("public"));
+app.use('/media', express.static(path.join(__dirname, 'media')));
 app.use("/profile-pics", express.static(PROFILE_CACHE_DIR));
+app.use('/stickers', express.static(path.join(__dirname, 'public', 'stickers')));
+
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+let globalIO = io;
 
 const JWT_SECRET = process.env.JWT_SECRET || "chave123";
 
@@ -36,6 +45,9 @@ let lastStatus = "desconectado";
 // Cria diretório de cache se não existir
 if (!fs.existsSync(PROFILE_CACHE_DIR)) {
   fs.mkdirSync(PROFILE_CACHE_DIR, { recursive: true });
+}
+if (!fs.existsSync(STICKER_DIR)) {
+  fs.mkdirSync(STICKER_DIR, { recursive: true });
 }
 
 // ===== LIMPEZA DE IMAGENS EXPIRADAS =====
@@ -82,16 +94,34 @@ async function getProfilePicture(jid, name, isGroup = false) {
 }
 
 // ===== INICIALIZAÇÃO DO WHATSAPP =====
-const initWASocket = async () => {
+const initWASocket = async (ioInstance) => {
   const { state, saveCreds } = await useMultiFileAuthState("auth");
   const { version } = await fetchLatestWaWebVersion({});
+  globalIO = ioInstance;
 
   sock = makeWASocket({
     auth: state,
     browser: Browsers.appropriate("Desktop"),
     printQRInTerminal: false,
     version,
+
+    getMessage: async (key) => {
+      const jid = key?.remoteJid || "";
+      if (jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter")) {
+        return { conversation: "" };
+      }
+      return { conversation: "" };
+    },
   });
+
+  // ===== DESABILITA EVENTOS RELACIONADOS A GRUPOS OU STATUS (FEITO 1 VEZ) =====
+  // CORREÇÃO: Estes eventos devem ser registrados aqui, uma única vez,
+  // e não dentro do 'messages.upsert' onde seriam registrados a cada nova mensagem.
+  sock.ev.on("groups.upsert", () => {}); // ignora novos grupos
+  sock.ev.on("groups.update", () => {}); // ignora atualizações
+  sock.ev.on("group-participants.update", () => {}); // ignora entradas/saídas
+  sock.ev.on("chats.update", () => {}); // ignora atualizações de chats de grupo
+  sock.ev.on("contacts.update", () => {}); // ainda pode receber contatos diretos
 
   sock.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
     if (qr) lastQR = qr;
@@ -116,8 +146,10 @@ const initWASocket = async () => {
   sock.ev.on("messages.upsert", async ({ messages: newMessages }) => {
     for (const msg of newMessages) {
       const jid = msg.key.remoteJid;
-      if (!msg.message) continue;
+      if (jid?.endsWith("@g.us")) continue;
+      if (jid?.endsWith("@newsletter")) continue;
       if (jid === "status@broadcast") continue;
+      if (!msg.message) continue;
 
       const messageId = msg.key.id;
       const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
@@ -139,19 +171,153 @@ const initWASocket = async () => {
       const alreadyExists = conv.messages.some(m => m.messageId === messageId);
       if (alreadyExists) continue;
 
+      // timestamp
+      const ts = msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now();
+
+      // ----- STICKER HANDLING -----
+      if (msg.message.stickerMessage) {
+        try {
+          // baixa conteúdo da figurinha (iterable de chunks)
+          const stream = await downloadContentFromMessage(msg.message.stickerMessage, 'sticker');
+          let buffer = Buffer.from([]);
+          for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+          }
+
+          // salvar webp com nome seguro
+          const safeJid = jid.replace(/[:\/\\]/g, "_");
+          const filename = `${safeJid}-${messageId}.webp`;
+          const publicPath = path.join(STICKER_DIR, filename);
+          fs.writeFileSync(publicPath, buffer);
+
+          // push no banco
+          conv.messages.push({
+            type: "sticker",
+            url: `/stickers/${encodeURIComponent(filename)}`, // caminho público
+            fromMe: msg.key.fromMe || false,
+            timestamp: ts,
+            messageId
+          });
+
+          await conv.save();
+
+          // emitir via socket para front-end com type 'sticker'
+          if (globalIO) {
+            globalIO.emit("message:new", {
+              jid,
+              type: "sticker",
+              url: `/stickers/${encodeURIComponent(filename)}`,
+              fromMe: msg.key.fromMe || false,
+              name: msg.pushName || jid,
+              messageId,
+              timestamp: ts
+            });
+          }
+
+          continue; // passa pro próximo msg
+        } catch (err) {
+          console.error("Erro ao baixar/storer sticker:", err);
+          // fallback: salvar apenas placeholder text
+          conv.messages.push({
+            text: "[figurinha]",
+            fromMe: msg.key.fromMe || false,
+            timestamp: ts,
+            messageId
+          });
+          await conv.save();
+          if (globalIO) {
+            globalIO.emit("message:new", {
+              jid,
+              text: "[figurinha]",
+              fromMe: msg.key.fromMe || false,
+              name: msg.pushName || jid,
+              messageId,
+              timestamp: ts
+            });
+          }
+          continue;
+        }
+      }
+      
       conv.messages.push({
         text,
         fromMe,
         timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now(),
         messageId
       });
-
+      
       await conv.save();
-      console.log(`💬 Nova mensagem de ${fromMe ? "eu" : msg.pushName || jid} (${jid})`);
+      if (globalIO) {
+        globalIO.emit("message:new", {
+          jid,
+          text,
+          fromMe,
+          name: msg.pushName || jid,
+          messageId,
+          timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now()
+        });
+      }
     }
   });
 
+  // CORREÇÃO CRÍTICA: A assinatura do evento estava errada.
+  // O evento 'messages.update' retorna um ARRAY de updates.
+  // Você estava desestruturando '{ messages: newMessages }' (que não existe)
+  // e iterando sobre 'updates' (que estava indefinido).
+  sock.ev.on("messages.update", async (updates) => {
+     try {
+        for (const { key, update } of updates) {
+          const messageId = key.id;
+          const status = update.status; // pode ser 1, 2, 3, 4 (Baileys usa números)
 
+          if (status !== undefined) {
+            // Converte para texto legível
+            const statusMap = {
+              1: "pending",
+              2: "sent",
+              3: "delivered",
+              4: "read",
+            };
+
+            const readableStatus = statusMap[status] || "pending";
+
+            await Conversation.updateOne(
+              { "messages.messageId": messageId },           // encontra a conversa com a mensagem
+              { $set: { "messages.$.status": readableStatus } }     // atualiza apenas o campo status dessa mensagem
+            );
+
+            console.log("📤 Atualização de status:", messageId, readableStatus);
+            
+            // Envia para todos os clientes conectados
+            io.emit("message:status", { messageId, status: readableStatus });
+          }
+        }
+    } catch (err) {
+      console.error("❌ Erro em messages.update:", err);
+    }
+  });
+
+  sock.ev.on("readReceipts.update", async (updates) => {
+    try {
+      for (const receipt of updates) {
+        const messageIds = receipt.messageIds || [];
+        for (const id of messageIds) {
+          await Conversation.updateOne(
+            { "messages.messageId": id },
+            { $set: { "messages.$.status": "read" } }
+          );
+          if (globalIO) {
+            globalIO.emit("message:status", {
+              messageId: id,
+              status: "read"
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ Erro em readReceipts.update:", err);
+    }
+  });
 
   sock.ev.on("creds.update", saveCreds);
 };
@@ -307,7 +473,6 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
   const filePath = path.join(PROFILE_CACHE_DIR, `${safeJid}.jpg`);
 
   if (jid === "status@broadcast") {
-    console.log("⚠️ Ignorando status@broadcast");
     return res.json({
       img: `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`
     });
@@ -425,10 +590,61 @@ app.post("/send", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Bot não está conectado." });
     }
 
-    // Envia mensagem e deixa o messages.upsert cuidar do armazenamento
-    await sock.sendMessage(jid, { text });
-    res.json({ success: true });
+    // ====== Adiciona imediatamente a mensagem local ======
+    let conv = await Conversation.findOne({ jid });
+    if (!conv) {
+      conv = new Conversation({
+        jid,
+        name: jid,
+        status: "queue",
+        messages: [],
+      });
+    }
+
+    const tempMessageId = `temp-${Date.now()}`; // ID temporário
+    const newMsg = {
+      text,
+      fromMe: true,
+      timestamp: Date.now(),
+      messageId: tempMessageId,
+      status: "pending",
+    };
+
+    conv.messages.push(newMsg);
+    await conv.save();
+
+    // ====== Envia mensagem ao WhatsApp ======
+    let sendResult;
+    try {
+      sendResult = await sock.sendMessage(jid, { text });
+    } catch (err) {
+      console.error("⚠️ Erro no envio via Baileys:", err);
+    }
+
+    // Atualiza ID e status somente se existir resultado válido
+    if (sendResult?.key?.id) {
+      const msgIndex = conv.messages.findIndex(m => m.messageId === tempMessageId);
+      if (msgIndex >= 0) {
+        conv.messages[msgIndex].messageId = sendResult.key.id;
+        conv.messages[msgIndex].status = "sent";
+        await conv.save();
+      }
+    }
+
+    // Resposta segura ao cliente
+    return res.json({
+      success: true,
+      message: {
+        text,
+        fromMe: true,
+        messageId: sendResult?.key?.id || tempMessageId,
+        status: "sent",
+        timestamp: Date.now()
+      }
+    });
+
   } catch (err) {
+    console.error("❌ Erro ao enviar mensagem:", err);
     res.status(500).json({ error: "Erro ao enviar mensagem", detalhes: err.message });
   }
 });
@@ -436,9 +652,9 @@ app.post("/send", authMiddleware, async (req, res) => {
 
 // ===== INICIALIZAÇÃO =====
 cleanExpiredProfilePics();
-initWASocket();
+initWASocket(io);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 API rodando em http://localhost:${PORT}`);
 });
