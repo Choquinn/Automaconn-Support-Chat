@@ -336,6 +336,65 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+async function getTotalUnreadCount() {
+  const conversations = await Conversation.find({});
+  
+  let totalUnread = 0;
+  for (const conv of conversations) {
+    const unread = conv.messages.filter(
+      (msg) => !msg.fromMe && msg.status !== "read"
+    ).length;
+    totalUnread += unread;
+  }
+
+  return totalUnread;
+}
+
+async function markAsRead(jid) {
+  try {
+    // 1. Atualizar no banco de dados
+    const result = await Conversation.updateOne(
+      { jid },
+      { $set: { "messages.$[elem].status": "read" } },
+      { arrayFilters: [{ "elem.fromMe": false, "elem.status": { $ne: "read" } }] }
+    );
+
+    // 2. Enviar confirmação de leitura real para o WhatsApp
+    if (sock) {
+      const conv = await Conversation.findOne({ jid });
+      if (conv) {
+        const unreadMessages = conv.messages
+          .filter(m => !m.fromMe && m.status !== "read" && m.messageId)
+          .map(m => ({
+            remoteJid: jid,
+            id: m.messageId,
+            fromMe: false
+          }));
+
+        if (unreadMessages.length > 0) {
+          await sock.readMessages(unreadMessages);
+          console.log(`📖 ${unreadMessages.length} mensagens marcadas como lidas no WhatsApp`);
+        }
+      }
+    }
+
+    // 3. Notificar via socket
+    if (globalIO) {
+      globalIO.emit("conversation:read", { jid });
+      
+      // Atualizar contador
+      const unreadCount = await getUnreadCount(jid);
+      globalIO.emit("unread:update", { jid, unreadCount });
+    }
+
+    console.log(`✅ Mensagens de ${jid} marcadas como lidas`);
+    return { success: true, modified: result.modifiedCount };
+  } catch (err) {
+    console.error("❌ Erro ao marcar como lida:", err);
+    throw err;
+  }
+}
+
 // ===== ENDPOINTS =====
 
 // Registro de usuário
@@ -646,6 +705,31 @@ app.post("/send", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("❌ Erro ao enviar mensagem:", err);
     res.status(500).json({ error: "Erro ao enviar mensagem", detalhes: err.message });
+  }
+});
+
+app.get("/unread-count", authMiddleware, async (req, res) => {
+  try {
+    const totalUnread = await getTotalUnreadCount();
+    res.json({ totalUnread });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/mark-as-read", authMiddleware, async (req, res) => {
+  try {
+    const { jid } = req.body;
+    
+    if (!jid) {
+      return res.status(400).json({ error: "JID é obrigatório" });
+    }
+
+    await markAsRead(jid);
+    
+    res.json({ success: true, message: "Mensagens marcadas como lidas" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

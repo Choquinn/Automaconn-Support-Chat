@@ -853,4 +853,40 @@
     font-size: 14px;
     opacity: 0.8;
   }
+
+  #file {
+    display: none;
+    position: fixed;
+    width: 63.5em;
+    height: 33em;
+    left: 24.5em;
+    top: 11.5em;
+    border-radius: 1em 1em 0 0;
+    background-color: white;
+    z-index: 2;
+  }
+
+  #file-info {
+    position: relative;
+    text-align-last: center;
+    top: 8em;
+  }
+
+  #close-attach-sym {
+    position: fixed;
+    top: 8.2em;
+    left: 16.8em;
+    cursor: pointer;
+  }
+
+  #emojis {
+    display: none;
+    position: fixed;
+    background-color: white;
+    width: 20em;
+    height: 22em;
+    border-radius: 1em;
+    top: 20.5em;
+    left: 25em;
+  }
 }

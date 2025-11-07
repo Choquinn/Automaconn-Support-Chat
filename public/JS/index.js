@@ -4,6 +4,7 @@ const addButton = document.getElementById("addBtn");
 const exitButton = document.getElementById("exit");
 const textInput = document.getElementById("text"); // id do seu index.html
 const imageCache = {};
+import { emojisByCategory } from "./emojisByCategory.js";
 let currentTab = 1;
 let isLoading = true;
 let currentChat = null; // ainda mantido para compatibilidade com outras partes
@@ -25,6 +26,7 @@ window.addUser = addUser;
 window.deleteUser = deleteUser;
 window.cancelDelete = cancelDelete;
 window.deleteConversation = deleteConversation;
+window.emojiWindow = emojiWindow;
 
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
@@ -37,17 +39,59 @@ socket.on("connect", () => {
   console.log("✅ Conectado ao servidor Socket.IO");
 });
 // Quando uma nova mensagem chegar
-socket.on("message:new", (msg) => {
+socket.on("message:new", async (msg) => {
   // Evita duplicar mensagens enviadas por mim
   if (msg.fromMe && sentThisSession.includes(msg.messageId)) return;
 
   if (msg && msg.jid === currentChatJid) {
     renderMessage(msg);
     scrollToBottom(true);
+    return;
+  }
+
+  const data = await fetchUnreadCount();
+
+  if (data > 0) {
+    document.title += ` (${data})`;
+  }else {
+    document.title = "Chat - Automaconn Chat";
   }
 
   updateConversationPreview(msg);
 });
+
+async function fetchUnreadCount() {
+  const res = await fetch("/unread-count", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  return data.totalUnread;
+}
+
+function emojis() {
+  const emojiGrid = document.getElementById("emojis");
+
+  Object.entries(emojisByCategory).forEach(([category, list]) => {
+    const title = document.createElement("h4");
+    title.textContent = category;
+    emojiGrid.appendChild(title);
+
+    const container = document.createElement("div");
+    container.classList.add("emoji-section");
+
+    list.forEach(e => {
+      const span = document.createElement("span");
+      span.textContent = e;
+      span.classList.add("emoji");
+      span.addEventListener("click", () => {
+        messageInput.value += e;
+      });
+      container.appendChild(span);
+    });
+
+    emojiGrid.appendChild(container);
+  });
+}
 
 // Atualização de status (pendente, enviada, entregue, lida)
 socket.on("message:status", ({ messageId, status }) => {
@@ -554,6 +598,55 @@ async function fetchConversations() {
   }
 }
 
+const span = document.getElementById("anexo-sym");
+const fileInput = document.createElement("input");
+const fileBlock = document.getElementById("file");
+const fileCancel = document.getElementById("close-attach-sym");
+const fileInfo = document.getElementById("file-info");
+fileInput.type = "file";
+fileInput.style.display = "none";
+
+span.addEventListener("click", () => {
+  fileInput.click();
+});
+
+// Adiciona o evento quando o usuário selecionar um arquivo
+fileInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    console.log("Arquivo selecionado:", file.name);
+    console.log("Tipo:", file.type);
+    console.log("Tamanho:", file.size);
+    fileBlock.style.display = "block";
+    fileInfo.innerHTML = `
+      <img src="../images/file-icon.png" alt="file" class="file-icon"/>
+      <h2>${file.name}</h2>
+      <p>${(file.size / 1024).toFixed(2)} KB</p>
+    `
+    // handleFile(file);
+  }
+});
+
+fileCancel.addEventListener("click", () => {
+  fileBlock.style.display = "none";
+  fileInput.value = "";
+  fileInput.files = null;
+});
+
+var emojiOpen = false;
+
+function emojiWindow() {
+  const emojiDiv = document.getElementById("emojis");
+
+  if (emojiOpen === false) {
+    emojiDiv.style.display = "block";
+    emojiOpen = true;
+  }else {
+    emojiDiv.style.display = "none";
+    emojiOpen = false;
+  }
+}
+
 // ===== RENDERIZAR BOTÕES DE STATUS =====
 function renderStatusButtons(c) {
   const statusContainer = document.getElementById("status-buttons");
@@ -598,7 +691,7 @@ function renderMessages(chatContainer, messages) {
 
     if (msg.fromMe) {
       div.innerHTML = `
-        <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+        <p class="msg-bubble-text">${msg.text}</p>
         <span class="msg-info">
           <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
           <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
@@ -664,7 +757,7 @@ function renderMessage(msg) {
 
   if (msg.fromMe) {
     div.innerHTML = `
-      <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
+      <p class="msg-bubble-text">${msg.text}</p>
       <span class="msg-info">
         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
         <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
@@ -795,6 +888,15 @@ async function openChat(jid) {
     });
     if (!res.ok) throw new Error("Não foi possível carregar a conversa");
 
+    await fetch("/mark-as-read", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ jid })
+    });
+
     const data = await res.json();
     if (headerName) headerName.textContent = data.name;
 
@@ -887,6 +989,10 @@ async function updateChat(jid) {
   }
 }
 
+function capitalizeFirstLetter(val) {
+    return String(val).charAt(0).toUpperCase() + String(val).slice(1);
+}
+
 // ===== ABRIR / FECHAR CONFIGURAÇÕES =====
 var settingsOpen = false;
 function openSettings() {
@@ -919,11 +1025,17 @@ function openStatus() {
 async function sendMessage() {
   const input = document.querySelector("#text");
   if (!input) return;
-  const text = input.value.trim();
-  if (!text || !currentChatJid) return;
-
   const token = getToken();
+  const res = await fetch("/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const username = await res.json();
+  const user = username.username;
+  const userFormatted = capitalizeFirstLetter(user);
   if (!token) return;
+  const text = `<strong>${userFormatted}:</strong><br>${input.value.trim()}`;
+  const textFormatted = `*${userFormatted}:*\n${input.value.trim()}`;
+  if (!text || !currentChatJid) return;
 
   // Cria ID temporário e evita duplicatas
   const tempId = `temp-${Date.now()}`;
@@ -950,7 +1062,7 @@ async function sendMessage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ jid: currentChatJid, text }),
+      body: JSON.stringify({ jid: currentChatJid, textFormatted }),
     });
 
     const data = await res.json();
