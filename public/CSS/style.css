@@ -452,6 +452,45 @@
     width: 12em;
     top: 49em;
     left: 85em;
+    z-index: 13;
+  }
+
+  #save-contact-btn {
+    position: fixed;
+    display: none;
+    width: 12em;
+    top: 53em;
+    left: 85em;
+    z-index: 13;
+  }
+
+  .configbtn.green.add {
+    top: 49em !important;
+    left: 72em !important;
+    background-color: rgb(40, 179, 35);
+  }
+
+  .configbtn.red.remove {
+    top: 49em !important;
+    left: 72em !important;
+    background-color: red;
+  }
+
+  #delete-contact-btn {
+    position: fixed;
+    display: none;
+    width: 12em;
+    top: 57em;
+    left: 85em;
+    z-index: 13;
+  }
+
+  #save-contact-btn.visible {
+    display: block !important;
+  }
+
+  #delete-contact-btn.visible {
+    display: block !important;
   }
 
   /* ===== BLOCO DE MENSAGENS ===== */
@@ -597,9 +636,13 @@
 
   #search-sym {
     scale: 0.9;
-    left: 10.6em;
+    left: 9.6em;
     top: 3.39em;
     position: fixed;
+  }
+
+  #add-sym {
+    cursor: pointer;
   }
 
   #config {
@@ -666,6 +709,15 @@
     right: 15.4em;
   }
 
+  #add-menu {
+    position: fixed;
+    display: none;
+    width: 100%;
+    height: 100%;
+    z-index: 11;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
   #delete-menu {
     position: fixed;
     display: none;
@@ -673,6 +725,56 @@
     height: 100%;
     z-index: 11;
     background: rgba(0, 0, 0, 0.5);
+  }
+
+  .add-label {
+    margin-bottom: 0.5em;
+  }
+
+  .add-field {
+    border-radius: 2em;
+    border: 1px #000 solid;
+    padding: 10px;
+    margin-bottom: 1em;
+  }
+
+  .add-button {
+    border-radius: 2em;
+    width: 10em;
+    outline: none;
+    cursor: pointer;
+    height: 3em;
+    border: 1px #000 solid;
+  }
+
+  .add-button.green {
+    background-color: #22c92a;
+    position: relative;
+    left: 12.5em;
+    padding: 0.5em;
+    color: #fff;
+  }
+
+  .add-button.red {
+    background-color: #e31313;
+    position: relative;
+    bottom: 2.2em;
+    left: 23.5em;
+    padding: 0.5em;
+    color: #fff;
+  }
+
+  #add-block {
+    padding: 2em;
+    position: relative;
+    background: #fff;
+    width: 28em;
+    height: 10em;
+    border-radius: 1em;
+    left: 29em;
+    top: 15em;
+    display: flex;
+    flex-direction: column;
   }
 
   #delete-block {

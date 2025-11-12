@@ -4,6 +4,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const Conversation = require("./models/Conversation");
+const Contact = require("./models/Contact");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const axios = require("axios");
@@ -776,8 +777,32 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
 app.get("/conversations", authMiddleware, async (req, res) => {
   try {
     const allConvs = await Conversation.find();
-    res.json(allConvs);
+
+    // Busca todos os contatos de uma vez
+    const allContacts = await Contact.find();
+
+    // Cria um mapa de JID normalizado -> Contact para busca rápida
+    const contactMap = {};
+    allContacts.forEach((contact) => {
+      contactMap[contact.jid] = contact;
+    });
+
+    // Aplica os nomes dos contatos às conversas
+    const convsWithContacts = allConvs.map((conv) => {
+      const phoneNumber = conv.jid.replace(/\D/g, "");
+      const normalizedJid = `${phoneNumber}@c.us`;
+
+      const convObj = conv.toObject();
+      if (contactMap[normalizedJid]) {
+        convObj.name = contactMap[normalizedJid].name;
+      }
+
+      return convObj;
+    });
+
+    res.json(convsWithContacts);
   } catch (err) {
+    console.error("Erro ao buscar conversas:", err);
     res.status(500).json({ error: "Erro ao buscar conversas" });
   }
 });
@@ -788,7 +813,19 @@ app.get("/conversations/:jid", authMiddleware, async (req, res) => {
     const conv = await Conversation.findOne({ jid: req.params.jid });
     if (!conv)
       return res.status(404).json({ error: "Conversa não encontrada" });
-    res.json(conv);
+
+    // Verifica se existe um contato salvo
+    const phoneNumber = conv.jid.replace(/\D/g, "");
+    const normalizedJid = `${phoneNumber}@c.us`;
+
+    const contact = await Contact.findOne({ jid: normalizedJid });
+
+    const convObj = conv.toObject();
+    if (contact) {
+      convObj.name = contact.name;
+    }
+
+    res.json(convObj);
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar conversa" });
   }
@@ -950,6 +987,110 @@ app.post("/mark-as-read", authMiddleware, async (req, res) => {
     res.json({ success: true, message: "Mensagens marcadas como lidas" });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== ADICIONAR CONTATO =====
+app.post("/contacts", authMiddleware, async (req, res) => {
+  try {
+    const { name, number } = req.body;
+
+    // Validações
+    if (!name || !number) {
+      return res.status(400).json({ error: "Nome e número são obrigatórios" });
+    }
+
+    // Formata o número para WhatsApp JID (remove caracteres especiais)
+    const cleanNumber = number.replace(/\D/g, "");
+    if (cleanNumber.length < 10) {
+      return res.status(400).json({ error: "Número inválido" });
+    }
+
+    // Cria JID no formato WhatsApp
+    const jid = `${cleanNumber}@c.us`;
+
+    // Verifica se contato já existe
+    const existingContact = await Contact.findOne({
+      $or: [{ jid }, { number }],
+    });
+    if (existingContact) {
+      return res.status(400).json({ error: "Este contato já existe" });
+    }
+
+    // Cria novo contato
+    const newContact = new Contact({
+      jid,
+      name,
+      number: cleanNumber,
+      img: null, // Pode ser atualizada depois
+    });
+
+    await newContact.save();
+
+    res.json({
+      success: true,
+      message: "Contato adicionado com sucesso",
+      contact: newContact,
+    });
+  } catch (err) {
+    console.error("Erro ao adicionar contato:", err);
+    res.status(500).json({ error: "Erro ao adicionar contato" });
+  }
+});
+
+// ===== VERIFICAR SE CONTATO EXISTE =====
+app.get("/contact-exists/:jid", authMiddleware, async (req, res) => {
+  try {
+    const { jid } = req.params;
+    console.log("🔍 Verificando contato com JID:", jid);
+
+    // Normaliza o JID - extrai só o número
+    const phoneNumber = jid.replace(/\D/g, "");
+    const normalizedJid = `${phoneNumber}@c.us`;
+
+    console.log("📝 JID normalizado:", normalizedJid);
+
+    const contact = await Contact.findOne({ jid: normalizedJid });
+    console.log("📊 Contato encontrado:", !!contact);
+
+    res.json({
+      exists: !!contact,
+      contact: contact || null,
+    });
+  } catch (err) {
+    console.error("❌ Erro ao verificar contato:", err);
+    res.status(500).json({ error: "Erro ao verificar contato" });
+  }
+});
+
+// ===== DELETAR CONTATO =====
+app.delete("/contacts/:jid", authMiddleware, async (req, res) => {
+  try {
+    const { jid } = req.params;
+
+    if (!jid) {
+      return res.status(400).json({ error: "JID é obrigatório" });
+    }
+
+    // Normaliza o JID - extrai só o número
+    const phoneNumber = jid.replace(/\D/g, "");
+    const normalizedJid = `${phoneNumber}@c.us`;
+
+    console.log("🗑️ Deletando contato com JID normalizado:", normalizedJid);
+
+    const result = await Contact.findOneAndDelete({ jid: normalizedJid });
+
+    if (!result) {
+      return res.status(404).json({ error: "Contato não encontrado" });
+    }
+
+    res.json({
+      success: true,
+      message: "Contato deletado com sucesso",
+    });
+  } catch (err) {
+    console.error("Erro ao deletar contato:", err);
+    res.status(500).json({ error: "Erro ao deletar contato" });
   }
 });
 

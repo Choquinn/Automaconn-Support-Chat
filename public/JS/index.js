@@ -55,6 +55,7 @@ let messageStatusMap = {}; // armazena o status atual de cada mensagem
 var moreOpened = false;
 
 window.changeTab = changeTab;
+window.openAdd = openAdd;
 window.openSettings = openSettings;
 window.expandContact = expandContact;
 window.openStatus = openStatus;
@@ -66,6 +67,10 @@ window.deleteUser = deleteUser;
 window.cancelDelete = cancelDelete;
 window.deleteConversation = deleteConversation;
 window.emojiWindow = emojiWindow;
+window.openAdd = openAdd;
+window.addContact = addContact;
+window.saveContactFromChat = saveContactFromChat;
+window.deleteContact = deleteContact;
 
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
@@ -571,6 +576,138 @@ async function deleteConversation(jid) {
   }
 }
 
+// ===== SALVAR CONTATO DO CHAT =====
+function saveContactFromChat() {
+  const jid = currentChatJid;
+  if (!jid) {
+    alert("Nenhuma conversa aberta");
+    return;
+  }
+
+  // Extrai o número do JID
+  const phoneNumber = jid.replace(/\D/g, "");
+
+  // Abre o menu de adicionar contato
+  openAdd();
+
+  // Preenche o número automaticamente
+  const numberInput = document.getElementById("add-number");
+  if (numberInput) {
+    numberInput.value = phoneNumber;
+    numberInput.disabled = true; // Desabilita para o usuário não mudar
+  }
+
+  // Coloca o foco no campo de nome
+  const nameInput = document.getElementById("add-name");
+  if (nameInput) {
+    nameInput.focus();
+    nameInput.value = ""; // Limpa se houver algo
+  }
+}
+
+// ===== DELETAR CONTATO =====
+async function deleteContact() {
+  const jid = currentChatJid;
+  if (!jid) {
+    alert("Nenhuma conversa aberta");
+    return;
+  }
+
+  const token = getToken();
+  if (!token) {
+    alert("Você não está logado");
+    return;
+  }
+
+  // Confirmação
+  if (!confirm("Tem certeza que deseja deletar este contato?")) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/contacts/${encodeURIComponent(jid)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert("✅ Contato deletado com sucesso!");
+      // Atualiza o nome na barra lateral para mostrar apenas o número
+      fetchConversations();
+      // Fecha o menu de mais opções (more-chat)
+      if (moreOpened) {
+        expandContact();
+      }
+      // Verifica novamente os botões
+      checkAndToggleSaveContactButton(jid);
+    } else {
+      alert(`❌ Erro: ${data.error || "Não foi possível deletar o contato"}`);
+    }
+  } catch (err) {
+    console.error("Erro ao deletar contato:", err);
+    alert("❌ Erro ao deletar contato. Tente novamente.");
+  }
+}
+
+// ===== VERIFICAR E MOSTRAR/ESCONDER BOTÃO SALVAR CONTATO =====
+async function checkAndToggleSaveContactButton(jid) {
+  const saveContactBtn = document.getElementById("save-contact-btn");
+  const deleteContactBtn = document.getElementById("delete-contact-btn");
+
+  console.log("🔍 Verificando contato com JID:", jid);
+  console.log("Botões encontrados:", {
+    saveContactBtn: !!saveContactBtn,
+    deleteContactBtn: !!deleteContactBtn,
+  });
+
+  const token = getToken();
+  if (!token) {
+    console.warn("⚠️ Token não encontrado");
+    if (saveContactBtn) saveContactBtn.classList.remove("visible");
+    if (deleteContactBtn) deleteContactBtn.classList.remove("visible");
+    return;
+  }
+
+  try {
+    const encodedJid = encodeURIComponent(jid);
+    console.log("📤 Enviando para API:", `/contact-exists/${encodedJid}`);
+
+    const res = await fetch(`/contact-exists/${encodedJid}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    console.log("📡 Status da API:", res.status);
+
+    if (res.ok) {
+      const data = await res.json();
+      console.log("✅ Resposta da API:", JSON.stringify(data));
+
+      // Se o contato não existe, mostra botão de salvar
+      if (data.exists === false) {
+        console.log("📍 Contato NÃO existe - mostrando botão 'Salvar'");
+        if (saveContactBtn) saveContactBtn.classList.add("visible");
+        if (deleteContactBtn) deleteContactBtn.classList.remove("visible");
+      } else {
+        // Se o contato existe, mostra botão de deletar
+        console.log("📍 Contato existe - mostrando botão 'Deletar'");
+        if (saveContactBtn) saveContactBtn.classList.remove("visible");
+        if (deleteContactBtn) deleteContactBtn.classList.add("visible");
+      }
+    } else {
+      console.error("❌ Erro na resposta da API:", res.status);
+      // Se houver erro na verificação, esconde ambos
+      if (saveContactBtn) saveContactBtn.classList.remove("visible");
+      if (deleteContactBtn) deleteContactBtn.classList.remove("visible");
+    }
+  } catch (err) {
+    console.error("❌ Erro ao verificar contato:", err);
+    if (saveContactBtn) saveContactBtn.classList.remove("visible");
+    if (deleteContactBtn) deleteContactBtn.classList.remove("visible");
+  }
+}
+
 // ===== CANCELAR DELETE =====
 function cancelDelete() {
   const deleteMenuEl = document.getElementById("delete-menu");
@@ -865,6 +1002,7 @@ function renderMessages(chatContainer, messages) {
 
 // Formata asteriscos em <strong>
 function formatarAsteriscos(texto) {
+  if (!texto || typeof texto !== "string") return "";
   return texto.replace(/\*([^*]+)\*/g, "<strong>$1</strong><br>");
 }
 
@@ -998,6 +1136,8 @@ function expandContact() {
   if (moreOpened === false) {
     const jid = div.getAttribute("data-jid");
     buttons.innerHTML = `
+      <button class="configbtn green add" id="save-contact-btn" onclick="saveContactFromChat('${jid}')">Salvar contato</button>
+      <button class="configbtn red remove" id="delete-contact-btn" onclick="deleteContact('${jid}')">Deletar contato</button>
       <button id="delete-conv" class="configbtn delete" onclick="deleteConversation('${jid}')">Deletar conversa</button>
     `;
     if (header) header.style.visibility = "hidden";
@@ -1006,6 +1146,8 @@ function expandContact() {
       button.style.visibility = "visible";
       button.classList.add("opened");
     }
+    // Após criar os botões, verifica e toggle o botão de contato
+    checkAndToggleSaveContactButton(jid);
     moreOpened = true;
   } else {
     more.style.display = "none";
@@ -1163,6 +1305,80 @@ function openSettings() {
   } else {
     configButton.style.display = "none";
     settingsOpen = false;
+  }
+}
+
+// ===== ABRIR / FECHAR ADIÇÃO =====
+var addBlockOpen = false;
+function openAdd() {
+  const addButton = document.getElementById("add-menu");
+  if (!addButton) return;
+  if (!addBlockOpen) {
+    addButton.style.display = "block";
+    addBlockOpen = true;
+  } else {
+    addButton.style.display = "none";
+    addBlockOpen = false;
+  }
+}
+
+// ===== ADICIONAR CONTATO =====
+async function addContact() {
+  const nameInput = document.getElementById("add-name");
+  const numberInput = document.getElementById("add-number");
+
+  if (!nameInput || !numberInput) return;
+
+  const name = nameInput.value.trim();
+  const number = numberInput.value.trim();
+
+  // Validações
+  if (!name || !number) {
+    alert("Por favor, preencha nome e número");
+    return;
+  }
+
+  const token = getToken();
+  if (!token) {
+    alert("Você não está logado");
+    return;
+  }
+
+  try {
+    const res = await fetch("/contacts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name, number }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(`✅ Contato "${name}" adicionado com sucesso!`);
+      // Limpa os campos
+      nameInput.value = "";
+      numberInput.value = "";
+      // Habilita o campo de número novamente
+      numberInput.disabled = false;
+      // Fecha o menu de adicionar contato
+      openAdd();
+      // Fecha o menu de mais opções (more-chat)
+      if (moreOpened) {
+        expandContact();
+      }
+      // Atualiza a lista de conversas
+      fetchConversations();
+      // Verifica se precisa esconder o botão de salvar contato
+      checkAndToggleSaveContactButton(currentChatJid);
+    } else {
+      alert(`❌ Erro: ${data.error || "Não foi possível adicionar o contato"}`);
+    }
+  } catch (err) {
+    console.error("Erro ao adicionar contato:", err);
+    alert("❌ Erro ao adicionar contato. Tente novamente.");
   }
 }
 

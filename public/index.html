@@ -25,7 +25,30 @@
       </div>
     </div>
 
-    <!-- Delete Menu -->
+    <!-- Add Menu -->
+    <div id="add-menu">
+      <div id="add-block">
+        <label for="add-name" class="add-label">Nome</label>
+        <input
+          type="text"
+          id="add-name"
+          class="add-field"
+          placeholder="Nome do contato"
+        />
+        <label for="add-number" class="add-label">Número</label>
+        <input
+          type="text"
+          id="add-number"
+          class="add-field"
+          placeholder="Número do contato"
+        />
+        <button class="add-button green" onclick="addContact()">
+          Adicionar contato
+        </button>
+        <button class="add-button red" onclick="openAdd()">Cancelar</button>
+      </div>
+    </div>
+    <!-- Delete menu -->
     <div id="delete-menu">
       <div id="delete-block">
         <label id="delete-label">Usuários</label>
@@ -82,6 +105,11 @@
                 >search</span
               >
             </div>
+            <div id="add" class="searchbar" onclick="openAdd()">
+              <span id="add-sym" class="material-symbols-outlined filled-icon"
+                >person_add</span
+              >
+            </div>
             <div id="config" class="searchbar" onclick="openSettings()">
               <span
                 id="settings-sym"
@@ -95,18 +123,10 @@
 
       <!-- Config Menu -->
       <div id="config-menu">
-        <button
-          class="configbtn add"
-          id="addBtn"
-          onclick="addUser()"
-        >
+        <button class="configbtn add" id="addBtn" onclick="addUser()">
           Adicionar usuário
         </button>
-        <button
-          class="configbtn delete"
-          id="deleteBtn"
-          onclick="deleteMenu()"
-        >
+        <button class="configbtn delete" id="deleteBtn" onclick="deleteMenu()">
           Deletar usuário
         </button>
         <button class="configbtn logout" id="logoutBtn">Sair da conta</button>
@@ -158,22 +178,13 @@
       <!-- Bloco de Chat -->
       <div id="chat-block">
         <div id="more-chat">
-          <div id="more-buttons">
-            <button
-              class="configbtn delete"
-              id="delete-conv"
-              onclick="deleteConversation()"
-            >
-              Deletar conversa
-            </button>
+          <div id="more-buttons">            
           </div>
         </div>
         <div id="status-buttons"></div>
         <div id="file">
           <span id="close-attach-sym" class="material-icons">close</span>
-          <div id="file-info">
-            
-          </div>
+          <div id="file-info"></div>
         </div>
         <div id="emojis"></div>
         <div id="chat-history"></div>
@@ -181,11 +192,15 @@
 
       <!-- Área de Digitação -->
       <div id="type-block">
-        <span id="emoji-sym" class="material-icons" onclick="emojiWindow()">mood</span>
+        <span id="emoji-sym" class="material-icons" onclick="emojiWindow()"
+          >mood</span
+        >
         <input id="text" type="text" placeholder="Mensagem" />
         <div id="util">
           <span id="anexo-sym" class="material-icons">attach_file</span>
-          <span id="audio-sym" class="material-symbols-outlined filled-icon">mic</span>
+          <span id="audio-sym" class="material-symbols-outlined filled-icon"
+            >mic</span
+          >
         </div>
       </div>
     </div>
