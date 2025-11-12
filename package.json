@@ -11,7 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "baileys": "^6.7.20",
+    "baileys": "^6.7.21",
     "bcryptjs": "^3.0.2",
     "body-parser": "^2.2.0",
     "brew": "^0.0.8",

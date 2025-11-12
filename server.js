@@ -1,4 +1,5 @@
-require('dotenv').config();
+//BACKEND
+require("dotenv").config();
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
@@ -8,7 +9,14 @@ const cors = require("cors");
 const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
-const { makeWASocket, Browsers, useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion, downloadContentFromMessage } = require("baileys");
+const {
+  makeWASocket,
+  Browsers,
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestWaWebVersion,
+  downloadContentFromMessage,
+} = require("baileys");
 const { v4: uuidv4 } = require("uuid");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -17,20 +25,25 @@ const PROFILE_CACHE_DIR = path.join(__dirname, "public", "profile-pics");
 const STICKER_DIR = path.join(__dirname, "public", "stickers");
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
-require('./database.js');
+require("./database.js");
 
 const app = express();
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(bodyParser.json());
 app.use(express.json());
 app.use(express.static("public"));
-app.use('/media', express.static(path.join(__dirname, 'media')));
+app.use("/media", express.static(path.join(__dirname, "media")));
 app.use("/profile-pics", express.static(PROFILE_CACHE_DIR));
-app.use('/stickers', express.static(path.join(__dirname, 'public', 'stickers')));
+app.use(
+  "/stickers",
+  express.static(path.join(__dirname, "public", "stickers"))
+);
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
@@ -38,7 +51,7 @@ let globalIO = io;
 
 const JWT_SECRET = process.env.JWT_SECRET || "chave123";
 
-let sock; 
+let sock;
 let lastQR = null;
 let lastStatus = "desconectado";
 
@@ -56,7 +69,7 @@ async function cleanExpiredProfilePics() {
     console.log("🧹 Limpando imagens expiradas no banco...");
 
     const conversations = await Conversation.find({
-      img: { $regex: /^https:\/\/pps\.whatsapp\.net/ }
+      img: { $regex: /^https:\/\/pps\.whatsapp\.net/ },
     });
 
     for (const conv of conversations) {
@@ -66,7 +79,9 @@ async function cleanExpiredProfilePics() {
       if (fs.existsSync(fullLocalPath)) {
         conv.img = `/profile-pics/${encodeURIComponent(conv.jid)}.jpg`;
       } else {
-        conv.img = `https://ui-avatars.com/api/?name=${encodeURIComponent(conv.name)}&background=random`;
+        conv.img = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          conv.name
+        )}&background=random`;
       }
 
       await conv.save();
@@ -81,7 +96,9 @@ async function cleanExpiredProfilePics() {
 // ===== OBTER FOTO DE PERFIL =====
 async function getProfilePicture(jid, name, isGroup = false) {
   if (isGroup) {
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      name
+    )}&background=random`;
   }
 
   try {
@@ -89,7 +106,9 @@ async function getProfilePicture(jid, name, isGroup = false) {
     return url;
   } catch (err) {
     console.log(`Não conseguiu pegar foto de ${jid}: ${err.message}`);
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      name
+    )}&background=random`;
   }
 }
 
@@ -107,7 +126,11 @@ const initWASocket = async (ioInstance) => {
 
     getMessage: async (key) => {
       const jid = key?.remoteJid || "";
-      if (jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter")) {
+      if (
+        jid.endsWith("@g.us") ||
+        jid === "status@broadcast" ||
+        jid.endsWith("@newsletter")
+      ) {
         return { conversation: "" };
       }
       return { conversation: "" };
@@ -123,139 +146,222 @@ const initWASocket = async (ioInstance) => {
   sock.ev.on("chats.update", () => {}); // ignora atualizações de chats de grupo
   sock.ev.on("contacts.update", () => {}); // ainda pode receber contatos diretos
 
-  sock.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
-    if (qr) lastQR = qr;
+  // ===== TRATAMENTO DE ERROS DE SESSÃO =====
+  // Isto evita logs de erro de "No session record" que ocorrem quando o WhatsApp reenvia mensagens
+  sock.ev.on("error", (err) => {
+    if (err?.message?.includes("No session record")) {
+      console.log("⚠️ Ignorando erro de sessão (mensagem reenviada)");
+      return; // Ignora erros de sessão faltante
+    }
+    console.error("❌ Erro do Socket:", err);
+  });
 
-    switch (connection) {
-      case "open":
+  sock.ev.on(
+    "connection.update",
+    async ({ connection, qr, lastDisconnect, isNewLogin }) => {
+      console.log("📡 Connection update:", { connection, isNewLogin });
+
+      if (qr) {
+        lastQR = qr;
+        console.log("📱 QR Code gerado");
+      }
+
+      if (connection === "open") {
         lastStatus = "conectado";
         console.log("✅ Bot conectado!");
-        break;
-      case "close":
-        lastStatus = "desconectado";
+        console.log("📞 Número:", sock?.user?.id);
+      }
+
+      if (connection === "close") {
         const shouldReconnect =
-          (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-        if (shouldReconnect) {
-          console.log("🔄 Reconectando...");
-          setTimeout(initWASocket, 5000);
+          lastDisconnect?.error?.output?.statusCode !==
+          DisconnectReason.loggedOut;
+        const reason = lastDisconnect?.error?.output?.statusCode;
+        const errorMsg = lastDisconnect?.error?.message;
+
+        console.log("⚠️ Conexão fechada:");
+        console.log("  - Status code:", reason);
+        console.log("  - Mensagem:", errorMsg);
+        console.log("  - Deve reconectar:", shouldReconnect);
+
+        if (reason === DisconnectReason.badSession) {
+          console.log("❌ Sessão inválida. Removendo auth...");
+          fs.rmSync("./auth", { recursive: true, force: true });
+          lastStatus = "desconectado";
+          lastQR = null;
+          console.log("🔄 Reiniciando em 3 segundos...");
+          setTimeout(() => initWASocket(globalIO), 3000);
+        } else if (reason === DisconnectReason.connectionClosed) {
+          console.log("🔄 Conexão fechada. Reconectando...");
+          lastStatus = "reconectando";
+          setTimeout(() => initWASocket(globalIO), 3000);
+        } else if (reason === DisconnectReason.connectionLost) {
+          console.log("📡 Conexão perdida. Reconectando...");
+          lastStatus = "reconectando";
+          setTimeout(() => initWASocket(globalIO), 5000);
+        } else if (reason === DisconnectReason.connectionReplaced) {
+          console.log("🔁 Conexão substituída em outro lugar.");
+          lastStatus = "desconectado";
+        } else if (reason === DisconnectReason.loggedOut) {
+          console.log("👋 Deslogado. Removendo sessão...");
+          fs.rmSync("./auth", { recursive: true, force: true });
+          lastStatus = "desconectado";
+          lastQR = null; // Limpa QR antigo
+          console.log("🔄 Iniciando nova sessão em 3 segundos...");
+          setTimeout(() => initWASocket(globalIO), 3000);
+        } else if (reason === DisconnectReason.restartRequired) {
+          console.log("🔄 Restart necessário. Reconectando...");
+          lastStatus = "reconectando";
+          setTimeout(() => initWASocket(globalIO), 2000);
+        } else if (reason === DisconnectReason.timedOut) {
+          console.log("⏱️ Timeout. Reconectando...");
+          lastStatus = "reconectando";
+          setTimeout(() => initWASocket(globalIO), 5000);
+        } else if (shouldReconnect) {
+          console.log("🔄 Tentando reconectar...");
+          lastStatus = "reconectando";
+          setTimeout(() => initWASocket(globalIO), 5000);
+        } else {
+          lastStatus = "desconectado";
         }
-        break;
+      }
     }
-  });
+  );
 
   sock.ev.on("messages.upsert", async ({ messages: newMessages }) => {
     for (const msg of newMessages) {
-      const jid = msg.key.remoteJid;
-      if (jid?.endsWith("@g.us")) continue;
-      if (jid?.endsWith("@newsletter")) continue;
-      if (jid === "status@broadcast") continue;
-      if (!msg.message) continue;
+      try {
+        const jid = msg.key.remoteJid;
+        if (jid?.endsWith("@g.us")) continue;
+        if (jid?.endsWith("@newsletter")) continue;
+        if (jid === "status@broadcast") continue;
+        if (!msg.message) continue;
 
-      const messageId = msg.key.id;
-      const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
-      const fromMe = msg.key.fromMe;
+        const messageId = msg.key.id;
+        const text =
+          msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+        const fromMe = msg.key.fromMe;
 
-      if (!text) continue;
+        if (!text) continue;
 
-      let conv = await Conversation.findOne({ jid });
-      if (!conv) {
-        conv = new Conversation({
-          jid,
-          name: msg.pushName || "Usuário",
-          status: "queue",
-          messages: [],
-        });
-      }
-
-      // ✅ Ignora mensagens fromMe duplicadas
-      const alreadyExists = conv.messages.some(m => m.messageId === messageId);
-      if (alreadyExists) continue;
-
-      // timestamp
-      const ts = msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now();
-
-      // ----- STICKER HANDLING -----
-      if (msg.message.stickerMessage) {
-        try {
-          // baixa conteúdo da figurinha (iterable de chunks)
-          const stream = await downloadContentFromMessage(msg.message.stickerMessage, 'sticker');
-          let buffer = Buffer.from([]);
-          for await (const chunk of stream) {
-            buffer = Buffer.concat([buffer, chunk]);
-          }
-
-          // salvar webp com nome seguro
-          const safeJid = jid.replace(/[:\/\\]/g, "_");
-          const filename = `${safeJid}-${messageId}.webp`;
-          const publicPath = path.join(STICKER_DIR, filename);
-          fs.writeFileSync(publicPath, buffer);
-
-          // push no banco
-          conv.messages.push({
-            type: "sticker",
-            url: `/stickers/${encodeURIComponent(filename)}`, // caminho público
-            fromMe: msg.key.fromMe || false,
-            timestamp: ts,
-            messageId
+        let conv = await Conversation.findOne({ jid });
+        if (!conv) {
+          conv = new Conversation({
+            jid,
+            name: msg.pushName || "Usuário",
+            status: "queue",
+            messages: [],
           });
+        }
 
-          await conv.save();
+        // ✅ Ignora mensagens fromMe duplicadas
+        const alreadyExists = conv.messages.some(
+          (m) => m.messageId === messageId
+        );
+        if (alreadyExists) continue;
 
-          // emitir via socket para front-end com type 'sticker'
-          if (globalIO) {
-            globalIO.emit("message:new", {
-              jid,
+        // timestamp
+        const ts = msg.messageTimestamp?.low
+          ? msg.messageTimestamp.low * 1000
+          : Date.now();
+
+        // ----- STICKER HANDLING -----
+        if (msg.message.stickerMessage) {
+          try {
+            // baixa conteúdo da figurinha (iterable de chunks)
+            const stream = await downloadContentFromMessage(
+              msg.message.stickerMessage,
+              "sticker"
+            );
+            let buffer = Buffer.from([]);
+            for await (const chunk of stream) {
+              buffer = Buffer.concat([buffer, chunk]);
+            }
+
+            // salvar webp com nome seguro
+            const safeJid = jid.replace(/[:\/\\]/g, "_");
+            const filename = `${safeJid}-${messageId}.webp`;
+            const publicPath = path.join(STICKER_DIR, filename);
+            fs.writeFileSync(publicPath, buffer);
+
+            // push no banco
+            conv.messages.push({
               type: "sticker",
-              url: `/stickers/${encodeURIComponent(filename)}`,
+              url: `/stickers/${encodeURIComponent(filename)}`, // caminho público
               fromMe: msg.key.fromMe || false,
-              name: msg.pushName || jid,
+              timestamp: ts,
               messageId,
-              timestamp: ts
             });
-          }
 
-          continue; // passa pro próximo msg
-        } catch (err) {
-          console.error("Erro ao baixar/storer sticker:", err);
-          // fallback: salvar apenas placeholder text
-          conv.messages.push({
-            text: "[figurinha]",
-            fromMe: msg.key.fromMe || false,
-            timestamp: ts,
-            messageId
-          });
-          await conv.save();
-          if (globalIO) {
-            globalIO.emit("message:new", {
-              jid,
+            await conv.save();
+
+            // emitir via socket para front-end com type 'sticker'
+            if (globalIO) {
+              globalIO.emit("message:new", {
+                jid,
+                type: "sticker",
+                url: `/stickers/${encodeURIComponent(filename)}`,
+                fromMe: msg.key.fromMe || false,
+                name: msg.pushName || jid,
+                messageId,
+                timestamp: ts,
+              });
+            }
+
+            continue; // passa pro próximo msg
+          } catch (err) {
+            console.error("Erro ao baixar/storer sticker:", err);
+            // fallback: salvar apenas placeholder text
+            conv.messages.push({
               text: "[figurinha]",
               fromMe: msg.key.fromMe || false,
-              name: msg.pushName || jid,
+              timestamp: ts,
               messageId,
-              timestamp: ts
             });
+            await conv.save();
+            if (globalIO) {
+              globalIO.emit("message:new", {
+                jid,
+                text: "[figurinha]",
+                fromMe: msg.key.fromMe || false,
+                name: msg.pushName || jid,
+                messageId,
+                timestamp: ts,
+              });
+            }
+            continue;
           }
-          continue;
         }
-      }
-      
-      conv.messages.push({
-        text,
-        fromMe,
-        timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now(),
-        messageId
-      });
-      
-      await conv.save();
-      if (globalIO) {
-        globalIO.emit("message:new", {
-          jid,
+
+        conv.messages.push({
           text,
           fromMe,
-          name: msg.pushName || jid,
+          timestamp: msg.messageTimestamp?.low
+            ? msg.messageTimestamp.low * 1000
+            : Date.now(),
           messageId,
-          timestamp: msg.messageTimestamp?.low ? msg.messageTimestamp.low * 1000 : Date.now()
         });
+
+        await conv.save();
+        if (globalIO) {
+          globalIO.emit("message:new", {
+            jid,
+            text,
+            fromMe,
+            name: msg.pushName || jid,
+            messageId,
+            timestamp: msg.messageTimestamp?.low
+              ? msg.messageTimestamp.low * 1000
+              : Date.now(),
+          });
+        }
+      } catch (err) {
+        console.error(
+          `⚠️ Erro ao processar mensagem de ${msg.key.remoteJid}:`,
+          err.message
+        );
+        // Continua processando outras mensagens mesmo com erro
+        continue;
       }
     }
   });
@@ -265,33 +371,33 @@ const initWASocket = async (ioInstance) => {
   // Você estava desestruturando '{ messages: newMessages }' (que não existe)
   // e iterando sobre 'updates' (que estava indefinido).
   sock.ev.on("messages.update", async (updates) => {
-     try {
-        for (const { key, update } of updates) {
-          const messageId = key.id;
-          const status = update.status; // pode ser 1, 2, 3, 4 (Baileys usa números)
+    try {
+      for (const { key, update } of updates) {
+        const messageId = key.id;
+        const status = update.status; // pode ser 1, 2, 3, 4 (Baileys usa números)
 
-          if (status !== undefined) {
-            // Converte para texto legível
-            const statusMap = {
-              1: "pending",
-              2: "sent",
-              3: "delivered",
-              4: "read",
-            };
+        if (status !== undefined) {
+          // Converte para texto legível
+          const statusMap = {
+            1: "pending",
+            2: "sent",
+            3: "delivered",
+            4: "read",
+          };
 
-            const readableStatus = statusMap[status] || "pending";
+          const readableStatus = statusMap[status] || "pending";
 
-            await Conversation.updateOne(
-              { "messages.messageId": messageId },           // encontra a conversa com a mensagem
-              { $set: { "messages.$.status": readableStatus } }     // atualiza apenas o campo status dessa mensagem
-            );
+          await Conversation.updateOne(
+            { "messages.messageId": messageId }, // encontra a conversa com a mensagem
+            { $set: { "messages.$.status": readableStatus } } // atualiza apenas o campo status dessa mensagem
+          );
 
-            console.log("📤 Atualização de status:", messageId, readableStatus);
-            
-            // Envia para todos os clientes conectados
-            io.emit("message:status", { messageId, status: readableStatus });
-          }
+          console.log("📤 Atualização de status:", messageId, readableStatus);
+
+          // Envia para todos os clientes conectados
+          io.emit("message:status", { messageId, status: readableStatus });
         }
+      }
     } catch (err) {
       console.error("❌ Erro em messages.update:", err);
     }
@@ -309,7 +415,7 @@ const initWASocket = async (ioInstance) => {
           if (globalIO) {
             globalIO.emit("message:status", {
               messageId: id,
-              status: "read"
+              status: "read",
             });
           }
         }
@@ -337,8 +443,15 @@ const authMiddleware = (req, res, next) => {
 };
 
 async function getTotalUnreadCount() {
-  const conversations = await Conversation.find({});
-  
+  // Busca apenas conversas de 1-para-1 (não grupos nem newsletters)
+  const conversations = await Conversation.find({
+    jid: {
+      $not: {
+        $regex: "@g.us$|@newsletter$",
+      },
+    },
+  });
+
   let totalUnread = 0;
   for (const conv of conversations) {
     const unread = conv.messages.filter(
@@ -347,7 +460,24 @@ async function getTotalUnreadCount() {
     totalUnread += unread;
   }
 
+  console.log("📊 Total não lidas (sem grupos):", totalUnread);
   return totalUnread;
+}
+
+async function getUnreadCount(jid) {
+  try {
+    const conv = await Conversation.findOne({ jid });
+    if (!conv) return 0;
+
+    const unread = conv.messages.filter(
+      (msg) => !msg.fromMe && msg.status !== "read"
+    ).length;
+
+    return unread;
+  } catch (err) {
+    console.error("❌ Erro ao contar não lidas:", err);
+    return 0;
+  }
 }
 
 async function markAsRead(jid) {
@@ -356,7 +486,11 @@ async function markAsRead(jid) {
     const result = await Conversation.updateOne(
       { jid },
       { $set: { "messages.$[elem].status": "read" } },
-      { arrayFilters: [{ "elem.fromMe": false, "elem.status": { $ne: "read" } }] }
+      {
+        arrayFilters: [
+          { "elem.fromMe": false, "elem.status": { $ne: "read" } },
+        ],
+      }
     );
 
     // 2. Enviar confirmação de leitura real para o WhatsApp
@@ -364,16 +498,18 @@ async function markAsRead(jid) {
       const conv = await Conversation.findOne({ jid });
       if (conv) {
         const unreadMessages = conv.messages
-          .filter(m => !m.fromMe && m.status !== "read" && m.messageId)
-          .map(m => ({
+          .filter((m) => !m.fromMe && m.status !== "read" && m.messageId)
+          .map((m) => ({
             remoteJid: jid,
             id: m.messageId,
-            fromMe: false
+            fromMe: false,
           }));
 
         if (unreadMessages.length > 0) {
           await sock.readMessages(unreadMessages);
-          console.log(`📖 ${unreadMessages.length} mensagens marcadas como lidas no WhatsApp`);
+          console.log(
+            `📖 ${unreadMessages.length} mensagens marcadas como lidas no WhatsApp`
+          );
         }
       }
     }
@@ -381,7 +517,7 @@ async function markAsRead(jid) {
     // 3. Notificar via socket
     if (globalIO) {
       globalIO.emit("conversation:read", { jid });
-      
+
       // Atualizar contador
       const unreadCount = await getUnreadCount(jid);
       globalIO.emit("unread:update", { jid, unreadCount });
@@ -402,8 +538,18 @@ app.post("/register", async (req, res) => {
   try {
     const { username, number, password, role } = req.body;
 
-    if (!username || !number || !password || !role || !Array.isArray(role) || role.length === 0) {
-      return res.json({ success: false, error: "Preencha todos os campos e selecione pelo menos uma área" });
+    if (
+      !username ||
+      !number ||
+      !password ||
+      !role ||
+      !Array.isArray(role) ||
+      role.length === 0
+    ) {
+      return res.json({
+        success: false,
+        error: "Preencha todos os campos e selecione pelo menos uma área",
+      });
     }
 
     const existingUser = await User.findOne({ number });
@@ -425,12 +571,15 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
   const { username, number, password } = req.body;
   const user = await User.findOne({ number });
-  if (!user) return res.json({ success: false, error: "Usuário não encontrado" });
+  if (!user)
+    return res.json({ success: false, error: "Usuário não encontrado" });
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) return res.json({ success: false, error: "Senha incorreta" });
 
-  const token = jwt.sign({ id: user._id, number: user.number }, JWT_SECRET, { expiresIn: "365d" });
+  const token = jwt.sign({ id: user._id, number: user.number }, JWT_SECRET, {
+    expiresIn: "365d",
+  });
   res.json({ success: true, token, number: user.number });
 });
 
@@ -440,7 +589,9 @@ app.get("/users", async (req, res) => {
     const users = await User.find();
     res.json(users);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao buscar usuários", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao buscar usuários", detalhes: err.message });
   }
 });
 
@@ -451,7 +602,9 @@ app.get("/users/:id", async (req, res) => {
     if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
     res.json(user);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao buscar usuário", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao buscar usuário", detalhes: err.message });
   }
 });
 
@@ -460,7 +613,10 @@ app.get("/user-id/:number", async (req, res) => {
   try {
     const number = req.params.number;
     const user = await User.findOne({ number }, { _id: 1 });
-    if (!user) return res.status(404).json({ success: false, error: "Usuário não encontrado" });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, error: "Usuário não encontrado" });
     res.json({ success: true, id: user._id });
   } catch (err) {
     res.status(500).json({ success: false, error: "Erro ao buscar usuário" });
@@ -476,10 +632,12 @@ app.get("/me", authMiddleware, async (req, res) => {
     res.json({
       username: user.username,
       number: user.number,
-      role: user.role
+      role: user.role,
     });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao buscar usuário", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao buscar usuário", detalhes: err.message });
   }
 });
 
@@ -495,7 +653,9 @@ app.delete("/users/:id", authMiddleware, async (req, res) => {
 
     res.json({ mensagem: "Usuário deletado com sucesso" });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao deletar usuário", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao deletar usuário", detalhes: err.message });
   }
 });
 
@@ -518,10 +678,36 @@ app.get("/exit", async (req, res) => {
     if (sock) await sock.logout().catch(() => {});
     sock = null;
     lastStatus = "desconectado";
+    lastQR = null;
     res.json({ success: true, message: "Desconectado com sucesso" });
-    setTimeout(() => initWASocket(), 2000);
+    setTimeout(() => initWASocket(globalIO), 2000);
   } catch (err) {
     res.status(500).json({ error: "Erro ao desconectar" });
+  }
+});
+
+// Reset de sessão (quando há problemas de decrypt)
+app.get("/reset-session", async (req, res) => {
+  try {
+    console.log("🔄 Resetando sessão...");
+    fs.rmSync("./auth", { recursive: true, force: true });
+    if (sock) {
+      await sock.logout().catch(() => {});
+      await sock.end().catch(() => {});
+    }
+    sock = null;
+    lastStatus = "desconectado";
+    lastQR = null;
+
+    // Reinicia em 2 segundos
+    setTimeout(() => {
+      initWASocket(globalIO);
+    }, 2000);
+
+    res.json({ success: true, message: "Sessão resetada. Reconectando..." });
+  } catch (err) {
+    console.error("❌ Erro ao resetar sessão:", err);
+    res.status(500).json({ error: "Erro ao resetar sessão" });
   }
 });
 
@@ -533,7 +719,9 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
 
   if (jid === "status@broadcast") {
     return res.json({
-      img: `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`
+      img: `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        jid
+      )}&background=random`,
     });
   }
 
@@ -552,14 +740,20 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
       imgUrl = await sock.profilePictureUrl(jid, "image");
       console.log(`🟢 URL recebida do WhatsApp: ${imgUrl}`);
     } catch (err) {
-      console.log(`⚠️ Erro ao buscar URL no WhatsApp para ${jid}: ${err.message}`);
-      const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+      console.log(
+        `⚠️ Erro ao buscar URL no WhatsApp para ${jid}: ${err.message}`
+      );
+      const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        jid
+      )}&background=random`;
       return res.json({ img: fallback });
     }
 
     if (!imgUrl) {
       console.log(`❌ Nenhuma URL retornada para ${jid}`);
-      const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+      const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        jid
+      )}&background=random`;
       return res.json({ img: fallback });
     }
 
@@ -569,10 +763,11 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     console.log(`💾 Foto salva localmente: ${filePath}`);
 
     return res.json({ img: `/profile-pics/${safeJid}.jpg` });
-
   } catch (err) {
     console.error("❌ Erro ao atualizar foto de perfil:", err);
-    const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(jid)}&background=random`;
+    const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      jid
+    )}&background=random`;
     return res.json({ img: fallback });
   }
 });
@@ -591,7 +786,8 @@ app.get("/conversations", authMiddleware, async (req, res) => {
 app.get("/conversations/:jid", authMiddleware, async (req, res) => {
   try {
     const conv = await Conversation.findOne({ jid: req.params.jid });
-    if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
+    if (!conv)
+      return res.status(404).json({ error: "Conversa não encontrada" });
     res.json(conv);
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar conversa" });
@@ -603,10 +799,15 @@ app.get("/conversation-id/:jid", async (req, res) => {
   try {
     const jid = req.params.jid;
     const conversation = await Conversation.findOne({ jid }, { _id: 1 });
-    if (!conversation) return res.status(404).json({ success: false, error: "Conversa não encontrada" });
+    if (!conversation)
+      return res
+        .status(404)
+        .json({ success: false, error: "Conversa não encontrada" });
     res.json({ success: true, id: conversation._id });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Erro ao buscar essa conversa" });
+    res
+      .status(500)
+      .json({ success: false, error: "Erro ao buscar essa conversa" });
   }
 });
 
@@ -615,8 +816,9 @@ app.post("/conversations/:jid/status", authMiddleware, async (req, res) => {
   try {
     const { status } = req.body;
     const conv = await Conversation.findOne({ jid: req.params.jid });
-    if (!conv) return res.status(404).json({ error: "Conversa não encontrada" });
-    
+    if (!conv)
+      return res.status(404).json({ error: "Conversa não encontrada" });
+
     conv.status = status;
     await conv.save();
     res.json({ success: true });
@@ -634,17 +836,29 @@ app.delete("/conversations/:id", authMiddleware, async (req, res) => {
     if (!resultado) {
       return res.status(404).json({ error: "Conversa não encontrada" });
     }
-    
+
     res.json({ mensagem: "Conversa deletada com sucesso!" });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao deletar essa conversa", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao deletar essa conversa", detalhes: err.message });
   }
 });
 
 // Enviar mensagem
 app.post("/send", authMiddleware, async (req, res) => {
   try {
-    const { jid, text } = req.body;
+    const { jid, textFormatted } = req.body; // ⚠️ Use textFormatted do frontend
+
+    // ✅ Validação crítica
+    if (
+      !textFormatted ||
+      typeof textFormatted !== "string" ||
+      !textFormatted.trim()
+    ) {
+      return res.status(400).json({ error: "Texto inválido ou vazio" });
+    }
+
     if (!sock || lastStatus !== "conectado") {
       return res.status(400).json({ error: "Bot não está conectado." });
     }
@@ -660,9 +874,9 @@ app.post("/send", authMiddleware, async (req, res) => {
       });
     }
 
-    const tempMessageId = `temp-${Date.now()}`; // ID temporário
+    const tempMessageId = `temp-${Date.now()}`;
     const newMsg = {
-      text,
+      text: textFormatted, // ✅ Use textFormatted
       fromMe: true,
       timestamp: Date.now(),
       messageId: tempMessageId,
@@ -675,14 +889,20 @@ app.post("/send", authMiddleware, async (req, res) => {
     // ====== Envia mensagem ao WhatsApp ======
     let sendResult;
     try {
-      sendResult = await sock.sendMessage(jid, { text });
+      sendResult = await sock.sendMessage(jid, { text: textFormatted }); // ✅ Use textFormatted
     } catch (err) {
       console.error("⚠️ Erro no envio via Baileys:", err);
+      return res.status(500).json({
+        error: "Erro ao enviar via WhatsApp",
+        detalhes: err.message,
+      });
     }
 
-    // Atualiza ID e status somente se existir resultado válido
+    // Atualiza ID e status
     if (sendResult?.key?.id) {
-      const msgIndex = conv.messages.findIndex(m => m.messageId === tempMessageId);
+      const msgIndex = conv.messages.findIndex(
+        (m) => m.messageId === tempMessageId
+      );
       if (msgIndex >= 0) {
         conv.messages[msgIndex].messageId = sendResult.key.id;
         conv.messages[msgIndex].status = "sent";
@@ -690,21 +910,21 @@ app.post("/send", authMiddleware, async (req, res) => {
       }
     }
 
-    // Resposta segura ao cliente
     return res.json({
       success: true,
       message: {
-        text,
+        text: textFormatted,
         fromMe: true,
         messageId: sendResult?.key?.id || tempMessageId,
         status: "sent",
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
-
   } catch (err) {
     console.error("❌ Erro ao enviar mensagem:", err);
-    res.status(500).json({ error: "Erro ao enviar mensagem", detalhes: err.message });
+    res
+      .status(500)
+      .json({ error: "Erro ao enviar mensagem", detalhes: err.message });
   }
 });
 
@@ -720,19 +940,18 @@ app.get("/unread-count", authMiddleware, async (req, res) => {
 app.post("/mark-as-read", authMiddleware, async (req, res) => {
   try {
     const { jid } = req.body;
-    
+
     if (!jid) {
       return res.status(400).json({ error: "JID é obrigatório" });
     }
 
     await markAsRead(jid);
-    
+
     res.json({ success: true, message: "Mensagens marcadas como lidas" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ===== INICIALIZAÇÃO =====
 cleanExpiredProfilePics();

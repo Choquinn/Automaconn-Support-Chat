@@ -1,3 +1,4 @@
+//FRONTEND
 // ===== CONSTANTES E VARIÁVEIS GLOBAIS =====
 const deleteButton = document.getElementById("deleteBtn");
 const addButton = document.getElementById("addBtn");
@@ -5,6 +6,44 @@ const exitButton = document.getElementById("exit");
 const textInput = document.getElementById("text"); // id do seu index.html
 const imageCache = {};
 import { emojisByCategory } from "./emojisByCategory.js";
+
+// ===== GERENCIAMENTO DE EMOJIS RECENTES =====
+const RECENT_EMOJIS_KEY = "recentEmojis";
+const MAX_RECENT_EMOJIS = 30;
+
+function getRecentEmojis() {
+  try {
+    const stored = localStorage.getItem(RECENT_EMOJIS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (err) {
+    console.error("❌ Erro ao carregar emojis recentes:", err);
+    return [];
+  }
+}
+
+function addRecentEmoji(emoji) {
+  try {
+    let recents = getRecentEmojis();
+    // Remove se já existe (evita duplicatas na mesma posição)
+    recents = recents.filter((e) => e !== emoji);
+    // Adiciona no início
+    recents.unshift(emoji);
+    // Limita a MAX_RECENT_EMOJIS
+    recents = recents.slice(0, MAX_RECENT_EMOJIS);
+    // Salva no localStorage
+    localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(recents));
+  } catch (err) {
+    console.error("❌ Erro ao salvar emoji recente:", err);
+  }
+}
+
+function clearRecentEmojis() {
+  try {
+    localStorage.removeItem(RECENT_EMOJIS_KEY);
+  } catch (err) {
+    console.error("❌ Erro ao limpar emojis recentes:", err);
+  }
+}
 let currentTab = 1;
 let isLoading = true;
 let currentChat = null; // ainda mantido para compatibilidade com outras partes
@@ -49,11 +88,12 @@ socket.on("message:new", async (msg) => {
     return;
   }
 
-  const data = await fetchUnreadCount();
+  const unreadCount = await fetchUnreadCount();
+  console.log("🔔 Título sendo atualizado com:", unreadCount);
 
-  if (data > 0) {
-    document.title += ` (${data})`;
-  }else {
+  if (unreadCount > 0) {
+    document.title = `Chat - Automaconn Chat (${unreadCount})`;
+  } else {
     document.title = "Chat - Automaconn Chat";
   }
 
@@ -61,30 +101,101 @@ socket.on("message:new", async (msg) => {
 });
 
 async function fetchUnreadCount() {
-  const res = await fetch("/unread-count", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json();
-  return data.totalUnread;
+  try {
+    const token = getToken();
+    if (!token) return 0;
+
+    const res = await fetch("/unread-count", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      console.error("❌ Erro ao buscar não lidas:", res.status);
+      return 0;
+    }
+
+    const data = await res.json();
+    const count = data?.totalUnread || 0;
+
+    // Garante que é um número válido
+    const validCount = Number.isInteger(count) ? count : 0;
+    console.log("📊 Não lidas:", validCount);
+    return validCount;
+  } catch (err) {
+    console.error("❌ Erro em fetchUnreadCount:", err);
+    return 0;
+  }
 }
 
 function emojis() {
   const emojiGrid = document.getElementById("emojis");
 
+  // Limpar se já tinha conteúdo
+  emojiGrid.innerHTML = "";
+
+  // ===== SEÇÃO DE RECENTES =====
+  const recents = getRecentEmojis();
+  if (recents.length > 0) {
+    const recentTitle = document.createElement("h4");
+    recentTitle.textContent = "⏱️ Recentes";
+    recentTitle.className = "emoji-category-title emoji-recent-title";
+    emojiGrid.appendChild(recentTitle);
+
+    const recentContainer = document.createElement("div");
+    recentContainer.classList.add("emoji-section", "emoji-recent-section");
+
+    recents.forEach((e) => {
+      const span = document.createElement("span");
+      span.textContent = e;
+      span.classList.add("emoji", "emoji-recent");
+      span.title = e;
+      span.addEventListener("click", () => {
+        const input = document.getElementById("text");
+        if (input) {
+          input.value += e;
+          input.focus();
+          // Atualiza lista de recentes
+          addRecentEmoji(e);
+          // Re-renderiza a bandeja
+          emojis();
+        }
+      });
+      recentContainer.appendChild(span);
+    });
+
+    emojiGrid.appendChild(recentContainer);
+
+    // Divisor visual
+    const divider = document.createElement("hr");
+    divider.className = "emoji-divider";
+    emojiGrid.appendChild(divider);
+  }
+
+  // ===== SEÇÃO DE CATEGORIAS =====
   Object.entries(emojisByCategory).forEach(([category, list]) => {
     const title = document.createElement("h4");
     title.textContent = category;
+    title.className = "emoji-category-title";
     emojiGrid.appendChild(title);
 
     const container = document.createElement("div");
     container.classList.add("emoji-section");
 
-    list.forEach(e => {
+    list.forEach((e) => {
       const span = document.createElement("span");
       span.textContent = e;
       span.classList.add("emoji");
+      span.title = e;
       span.addEventListener("click", () => {
-        messageInput.value += e;
+        const input = document.getElementById("text");
+        if (input) {
+          input.value += e;
+          input.focus();
+          // Adiciona aos recentes
+          addRecentEmoji(e);
+          // Re-renderiza apenas a seção de recentes
+          emojis();
+        }
       });
       container.appendChild(span);
     });
@@ -101,6 +212,17 @@ socket.on("message:status", ({ messageId, status }) => {
 
   // Aplica visualmente no DOM imediatamente
   applyMessageStatus(messageId, status);
+});
+
+// Atualização do contador de não lidas (quando mensagens são marcadas como lidas)
+socket.on("unread:update", ({ jid, unreadCount }) => {
+  console.log("📊 Contador de não lidas atualizado:", unreadCount);
+  // Atualiza o título da página
+  if (unreadCount > 0) {
+    document.title = `Chat - Automaconn Chat (${unreadCount})`;
+  } else {
+    document.title = "Chat - Automaconn Chat";
+  }
 });
 
 // Variáveis de roles
@@ -261,13 +383,31 @@ async function checkUserRoles(token) {
 async function checkConnection() {
   try {
     const statusRes = await fetch("/status");
-    const { status } = await statusRes.json();
+    const statusData = await statusRes.json();
 
-    if (status !== "conectado") {
+    console.log("Status atual:", statusData);
+
+    if (statusData.status === "conectado") {
+      // Tudo OK, continua normalmente
+      return;
+    }
+
+    if (statusData.status === "reconectando") {
+      // Mostra mensagem mas não redireciona ainda
+      console.log("⏳ Aguardando reconexão...");
+      // Tenta novamente em 3 segundos
+      setTimeout(checkConnection, 3000);
+      return;
+    }
+
+    // Se desconectado, redireciona para página de conexão
+    if (statusData.status === "desconectado") {
+      console.log("❌ Desconectado, redirecionando...");
       window.location.href = "/connect.html";
     }
   } catch (error) {
     console.error("Erro ao verificar conexão:", error);
+    // Em caso de erro na API, redireciona para página de conexão
     window.location.href = "/connect.html";
   }
 }
@@ -576,8 +716,14 @@ async function fetchConversations() {
       }
 
       div.querySelector(".client-name").textContent = c.name;
-      div.querySelector(".latest-msg").textContent =
-        c.messages.slice(-1)[0]?.text || "";
+
+      // Formata asteriscos em <strong>
+      const lastMsgText = c.messages.slice(-1)[0]?.text || "";
+      const formattedText = lastMsgText.replace(
+        /\*([^*]+)\*/g,
+        "<strong>$1</strong>"
+      );
+      div.querySelector(".latest-msg").innerHTML = formattedText;
 
       if (currentChat === c.jid) {
         div.classList.add("selected");
@@ -622,7 +768,7 @@ fileInput.addEventListener("change", (e) => {
       <img src="../images/file-icon.png" alt="file" class="file-icon"/>
       <h2>${file.name}</h2>
       <p>${(file.size / 1024).toFixed(2)} KB</p>
-    `
+    `;
     // handleFile(file);
   }
 });
@@ -639,9 +785,13 @@ function emojiWindow() {
   const emojiDiv = document.getElementById("emojis");
 
   if (emojiOpen === false) {
+    // Se ainda está vazio, popula com emojis
+    if (emojiDiv.innerHTML === "") {
+      emojis();
+    }
     emojiDiv.style.display = "block";
     emojiOpen = true;
-  }else {
+  } else {
     emojiDiv.style.display = "none";
     emojiOpen = false;
   }
@@ -691,13 +841,15 @@ function renderMessages(chatContainer, messages) {
 
     if (msg.fromMe) {
       div.innerHTML = `
-        <p class="msg-bubble-text">${msg.text}</p>
+        <p class="msg-bubble-text">${formatarAsteriscos(msg.text)}</p>
         <span class="msg-info">
           <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-          <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
+          <img class="msg-status" src="../images/${
+            msg.status || "pending"
+          }.png" />
         </span>
       `;
-    }else {
+    } else {
       div.innerHTML = `
         <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
         <span class="msg-info client">
@@ -709,6 +861,11 @@ function renderMessages(chatContainer, messages) {
   });
 
   scrollToBottom(false);
+}
+
+// Formata asteriscos em <strong>
+function formatarAsteriscos(texto) {
+  return texto.replace(/\*([^*]+)\*/g, "<strong>$1</strong><br>");
 }
 
 // Renderiza uma única mensagem (usado por socket e por envio local)
@@ -757,13 +914,15 @@ function renderMessage(msg) {
 
   if (msg.fromMe) {
     div.innerHTML = `
-      <p class="msg-bubble-text">${msg.text}</p>
+      <p class="msg-bubble-text">${formatarAsteriscos(msg.text)}</p>
       <span class="msg-info">
         <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
-        <img class="msg-status" src="../images/${msg.status || "pending"}.png" />
+        <img class="msg-status" src="../images/${
+          msg.status || "pending"
+        }.png" />
       </span>
     `;
-  }else {
+  } else {
     div.innerHTML = `
       <p class="msg-bubble-text">${escapeHtml(msg.text)}</p>
       <span class="msg-info client">
@@ -892,9 +1051,9 @@ async function openChat(jid) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ jid })
+      body: JSON.stringify({ jid }),
     });
 
     const data = await res.json();
@@ -990,7 +1149,7 @@ async function updateChat(jid) {
 }
 
 function capitalizeFirstLetter(val) {
-    return String(val).charAt(0).toUpperCase() + String(val).slice(1);
+  return String(val).charAt(0).toUpperCase() + String(val).slice(1);
 }
 
 // ===== ABRIR / FECHAR CONFIGURAÇÕES =====
@@ -1025,6 +1184,7 @@ function openStatus() {
 async function sendMessage() {
   const input = document.querySelector("#text");
   if (!input) return;
+
   const token = getToken();
   const res = await fetch("/me", {
     headers: { Authorization: `Bearer ${token}` },
@@ -1032,16 +1192,28 @@ async function sendMessage() {
   const username = await res.json();
   const user = username.username;
   const userFormatted = capitalizeFirstLetter(user);
-  if (!token) return;
-  const text = `<strong>${userFormatted}:</strong><br>${input.value.trim()}`;
-  const textFormatted = `*${userFormatted}:*\n${input.value.trim()}`;
-  if (!text || !currentChatJid) return;
 
-  // Cria ID temporário e evita duplicatas
+  if (!token) return;
+
+  const inputValue = input.value.trim();
+
+  // ✅ Validação adicional
+  if (!inputValue) {
+    console.warn("⚠️ Tentativa de enviar mensagem vazia");
+    return;
+  }
+
+  const text = `<strong>${userFormatted}:</strong><br>${inputValue}`;
+  const textFormatted = `*${userFormatted}:*\n${inputValue}`;
+
+  if (!currentChatJid) {
+    console.warn("⚠️ Nenhum chat selecionado");
+    return;
+  }
+
   const tempId = `temp-${Date.now()}`;
   sentThisSession.push(tempId);
 
-  // Renderiza imediatamente no chat local
   renderMessage({
     text,
     fromMe: true,
@@ -1052,7 +1224,6 @@ async function sendMessage() {
     jid: currentChatJid,
   });
 
-  // Limpa campo
   input.value = "";
 
   try {
@@ -1062,14 +1233,28 @@ async function sendMessage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ jid: currentChatJid, textFormatted }),
+      body: JSON.stringify({
+        jid: currentChatJid,
+        textFormatted, // ✅ Envia textFormatted
+      }),
     });
+
+    if (!res.ok) {
+      const error = await res.json();
+      console.error("❌ Erro do servidor:", error);
+
+      // Remove mensagem temporária se falhar
+      const tempDiv = document.getElementById(tempId);
+      if (tempDiv) tempDiv.remove();
+
+      alert("Erro ao enviar mensagem: " + (error.error || "Tente novamente"));
+      return;
+    }
 
     const data = await res.json();
 
     if (data?.message?.messageId) {
       const newId = data.message.messageId;
-
       sentThisSession.push(newId);
 
       const tempDiv = document.getElementById(tempId);
@@ -1079,6 +1264,12 @@ async function sendMessage() {
     }
   } catch (err) {
     console.error("Erro ao enviar mensagem:", err);
+
+    // Remove mensagem temporária se falhar
+    const tempDiv = document.getElementById(tempId);
+    if (tempDiv) tempDiv.remove();
+
+    alert("Erro de conexão ao enviar mensagem");
   }
 }
 
