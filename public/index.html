@@ -178,13 +178,40 @@
       <!-- Bloco de Chat -->
       <div id="chat-block">
         <div id="more-chat">
-          <div id="more-buttons">            
-          </div>
+          <div id="more-buttons"></div>
         </div>
         <div id="status-buttons"></div>
         <div id="file">
           <span id="close-attach-sym" class="material-icons">close</span>
           <div id="file-info"></div>
+        </div>
+        <div id="stickers-menu">
+          <div id="stickers-header">
+            <h3>Enviar Sticker</h3>
+            <span
+              id="close-stickers-sym"
+              class="material-icons"
+              onclick="closeStickerMenu()"
+              >close</span
+            >
+          </div>
+          <div id="stickers-upload">
+            <input
+              type="file"
+              id="sticker-input"
+              accept=".webp,.png,.jpg,.jpeg,image/webp,image/png,image/jpeg"
+              class="hidden-input"
+              title="Upload sticker"
+            />
+            <button
+              id="sticker-upload-btn"
+              class="sticker-btn upload"
+              onclick="document.getElementById('sticker-input').click()"
+            >
+              📤 Fazer Upload
+            </button>
+          </div>
+          <div id="stickers-list"></div>
         </div>
         <div id="emojis"></div>
         <div id="chat-history"></div>
@@ -197,6 +224,13 @@
         >
         <input id="text" type="text" placeholder="Mensagem" />
         <div id="util">
+          <span
+            id="sticker-sym"
+            class="material-icons"
+            onclick="openStickerMenu()"
+            title="Enviar sticker"
+            >collections</span
+          >
           <span id="anexo-sym" class="material-icons">attach_file</span>
           <span id="audio-sym" class="material-symbols-outlined filled-icon"
             >mic</span

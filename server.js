@@ -10,6 +10,8 @@ const cors = require("cors");
 const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
+const multer = require("multer");
+const sharp = require("sharp");
 const {
   makeWASocket,
   Browsers,
@@ -26,30 +28,58 @@ const PROFILE_CACHE_DIR = path.join(__dirname, "public", "profile-pics");
 const STICKER_DIR = path.join(__dirname, "public", "stickers");
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
+// ===== CONFIGURAÇÃO DO MULTER PARA UPLOAD DE STICKERS =====
+const upload = multer({
+  storage: multer.memoryStorage(), // Armazena na memória
+  fileFilter: (req, file, cb) => {
+    // Aceita .webp, .png, .jpg, .jpeg
+    const allowedMimes = ["image/webp", "image/png", "image/jpeg"];
+    const allowedExts = [".webp", ".png", ".jpg", ".jpeg"];
+
+    const isValidMime = allowedMimes.includes(file.mimetype);
+    const isValidExt = allowedExts.some((ext) =>
+      file.originalname.toLowerCase().endsWith(ext)
+    );
+
+    if (isValidMime || isValidExt) {
+      cb(null, true);
+    } else {
+      cb(
+        new Error(
+          "Apenas arquivos .webp, .png ou .jpeg são aceitos para stickers"
+        )
+      );
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limite
+  },
+});
+
 // Função para formatar número de telefone:
 // 558893469953 (13 dígitos com 55) → (88) 9 8834-69953
 // 5588934699 (11 dígitos com 55, sem 9) → (88) 3469-9953
 function formatPhoneNumber(phoneNumber) {
   let cleanNumber = phoneNumber.replace(/\D/g, "");
 
-  console.log(
-    `📞 Formatando número: ${phoneNumber} → ${cleanNumber} (${cleanNumber.length} dígitos)`
-  );
+  // console.log(
+  //   `📞 Formatando número: ${phoneNumber} → ${cleanNumber} (${cleanNumber.length} dígitos)`
+  // );
 
   // Remove o código de país (55) se estiver no início
   if (cleanNumber.startsWith("55")) {
     if (cleanNumber.length === 13) {
       // Com 9: 558893469953 → 8893469953 (11 dígitos)
       cleanNumber = cleanNumber.substring(2);
-      console.log(
-        `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (COM o 9)`
-      );
+      // console.log(
+      //   `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (COM o 9)`
+      // );
     } else if (cleanNumber.length === 12) {
       // Sem 9: 5588934699 → 88934699 (10 dígitos)
       cleanNumber = cleanNumber.substring(2);
-      console.log(
-        `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (SEM o 9)`
-      );
+      // console.log(
+      //   `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (SEM o 9)`
+      // );
     }
   }
 
@@ -62,7 +92,7 @@ function formatPhoneNumber(phoneNumber) {
     const lastPart = cleanNumber.substring(7, 11);
 
     const formatted = `(${areaCode}) ${firstDigit} ${middlePart}-${lastPart}`;
-    console.log(`✅ Número formatado (COM 9): ${formatted}`);
+    // console.log(`✅ Número formatado (COM 9): ${formatted}`);
     return formatted;
   } else if (cleanNumber.length === 10) {
     // SEM o 9: (XX) XXXX-XXXX
@@ -71,12 +101,12 @@ function formatPhoneNumber(phoneNumber) {
     const lastPart = cleanNumber.substring(6, 10);
 
     const formatted = `(${areaCode}) ${firstPart}-${lastPart}`;
-    console.log(`✅ Número formatado (SEM 9): ${formatted}`);
+    // console.log(`✅ Número formatado (SEM 9): ${formatted}`);
     return formatted;
   } else {
-    console.log(
-      `⚠️ Número não tem 10 ou 11 dígitos, retornando sem formatação`
-    );
+    // console.log(
+    //   `⚠️ Número não tem 10 ou 11 dígitos, retornando sem formatação`
+    // );
     return cleanNumber;
   }
 }
@@ -122,7 +152,7 @@ if (!fs.existsSync(STICKER_DIR)) {
 // ===== LIMPEZA DE IMAGENS EXPIRADAS =====
 async function cleanExpiredProfilePics() {
   try {
-    console.log("🧹 Limpando imagens expiradas no banco...");
+    // console.log("🧹 Limpando imagens expiradas no banco...");
 
     const conversations = await Conversation.find({
       img: { $regex: /^https:\/\/pps\.whatsapp\.net/ },
@@ -143,7 +173,7 @@ async function cleanExpiredProfilePics() {
       await conv.save();
     }
 
-    console.log(`✅ ${conversations.length} conversas atualizadas.`);
+    // console.log(`✅ ${conversations.length} conversas atualizadas.`);
   } catch (err) {
     console.error("❌ Erro ao limpar imagens expiradas:", err);
   }
@@ -161,7 +191,7 @@ async function getProfilePicture(jid, name, isGroup = false) {
     const url = await sock.profilePictureUrl(jid, "image");
     return url;
   } catch (err) {
-    console.log(`Não conseguiu pegar foto de ${jid}: ${err.message}`);
+    // console.log(`Não conseguiu pegar foto de ${jid}: ${err.message}`);
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(
       name
     )}&background=random`;
@@ -206,7 +236,7 @@ const initWASocket = async (ioInstance) => {
   // Isto evita logs de erro de "No session record" que ocorrem quando o WhatsApp reenvia mensagens
   sock.ev.on("error", (err) => {
     if (err?.message?.includes("No session record")) {
-      console.log("⚠️ Ignorando erro de sessão (mensagem reenviada)");
+      // console.log("⚠️ Ignorando erro de sessão (mensagem reenviada)");
       return; // Ignora erros de sessão faltante
     }
     console.error("❌ Erro do Socket:", err);
@@ -215,17 +245,17 @@ const initWASocket = async (ioInstance) => {
   sock.ev.on(
     "connection.update",
     async ({ connection, qr, lastDisconnect, isNewLogin }) => {
-      console.log("📡 Connection update:", { connection, isNewLogin });
+      // console.log("📡 Connection update:", { connection, isNewLogin });
 
       if (qr) {
         lastQR = qr;
-        console.log("📱 QR Code gerado");
+        // console.log("📱 QR Code gerado");
       }
 
       if (connection === "open") {
         lastStatus = "conectado";
-        console.log("✅ Bot conectado!");
-        console.log("📞 Número:", sock?.user?.id);
+        // console.log("✅ Bot conectado!");
+        // console.log("📞 Número:", sock?.user?.id);
       }
 
       if (connection === "close") {
@@ -235,46 +265,46 @@ const initWASocket = async (ioInstance) => {
         const reason = lastDisconnect?.error?.output?.statusCode;
         const errorMsg = lastDisconnect?.error?.message;
 
-        console.log("⚠️ Conexão fechada:");
-        console.log("  - Status code:", reason);
-        console.log("  - Mensagem:", errorMsg);
-        console.log("  - Deve reconectar:", shouldReconnect);
+        // console.log("⚠️ Conexão fechada:");
+        // console.log("  - Status code:", reason);
+        // console.log("  - Mensagem:", errorMsg);
+        // console.log("  - Deve reconectar:", shouldReconnect);
 
         if (reason === DisconnectReason.badSession) {
-          console.log("❌ Sessão inválida. Removendo auth...");
+          // console.log("❌ Sessão inválida. Removendo auth...");
           fs.rmSync("./auth", { recursive: true, force: true });
           lastStatus = "desconectado";
           lastQR = null;
-          console.log("🔄 Reiniciando em 3 segundos...");
+          // console.log("🔄 Reiniciando em 3 segundos...");
           setTimeout(() => initWASocket(globalIO), 3000);
         } else if (reason === DisconnectReason.connectionClosed) {
-          console.log("🔄 Conexão fechada. Reconectando...");
+          // console.log("🔄 Conexão fechada. Reconectando...");
           lastStatus = "reconectando";
           setTimeout(() => initWASocket(globalIO), 3000);
         } else if (reason === DisconnectReason.connectionLost) {
-          console.log("📡 Conexão perdida. Reconectando...");
+          // console.log("📡 Conexão perdida. Reconectando...");
           lastStatus = "reconectando";
           setTimeout(() => initWASocket(globalIO), 5000);
         } else if (reason === DisconnectReason.connectionReplaced) {
-          console.log("🔁 Conexão substituída em outro lugar.");
+          // console.log("🔁 Conexão substituída em outro lugar.");
           lastStatus = "desconectado";
         } else if (reason === DisconnectReason.loggedOut) {
-          console.log("👋 Deslogado. Removendo sessão...");
+          // console.log("👋 Deslogado. Removendo sessão...");
           fs.rmSync("./auth", { recursive: true, force: true });
           lastStatus = "desconectado";
           lastQR = null; // Limpa QR antigo
-          console.log("🔄 Iniciando nova sessão em 3 segundos...");
+          // console.log("🔄 Iniciando nova sessão em 3 segundos...");
           setTimeout(() => initWASocket(globalIO), 3000);
         } else if (reason === DisconnectReason.restartRequired) {
-          console.log("🔄 Restart necessário. Reconectando...");
+          // console.log("🔄 Restart necessário. Reconectando...");
           lastStatus = "reconectando";
           setTimeout(() => initWASocket(globalIO), 2000);
         } else if (reason === DisconnectReason.timedOut) {
-          console.log("⏱️ Timeout. Reconectando...");
+          // console.log("⏱️ Timeout. Reconectando...");
           lastStatus = "reconectando";
           setTimeout(() => initWASocket(globalIO), 5000);
         } else if (shouldReconnect) {
-          console.log("🔄 Tentando reconectar...");
+          // console.log("🔄 Tentando reconectar...");
           lastStatus = "reconectando";
           setTimeout(() => initWASocket(globalIO), 5000);
         } else {
@@ -448,7 +478,7 @@ const initWASocket = async (ioInstance) => {
             { $set: { "messages.$.status": readableStatus } } // atualiza apenas o campo status dessa mensagem
           );
 
-          console.log("📤 Atualização de status:", messageId, readableStatus);
+          // console.log("📤 Atualização de status:", messageId, readableStatus);
 
           // Envia para todos os clientes conectados
           io.emit("message:status", { messageId, status: readableStatus });
@@ -516,7 +546,7 @@ async function getTotalUnreadCount() {
     totalUnread += unread;
   }
 
-  console.log("📊 Total não lidas (sem grupos):", totalUnread);
+  // console.log("📊 Total não lidas (sem grupos):", totalUnread);
   return totalUnread;
 }
 
@@ -563,9 +593,9 @@ async function markAsRead(jid) {
 
         if (unreadMessages.length > 0) {
           await sock.readMessages(unreadMessages);
-          console.log(
-            `📖 ${unreadMessages.length} mensagens marcadas como lidas no WhatsApp`
-          );
+          // console.log(
+          //   `📖 ${unreadMessages.length} mensagens marcadas como lidas no WhatsApp`
+          // );
         }
       }
     }
@@ -579,7 +609,7 @@ async function markAsRead(jid) {
       globalIO.emit("unread:update", { jid, unreadCount });
     }
 
-    console.log(`✅ Mensagens de ${jid} marcadas como lidas`);
+    // console.log(`✅ Mensagens de ${jid} marcadas como lidas`);
     return { success: true, modified: result.modifiedCount };
   } catch (err) {
     console.error("❌ Erro ao marcar como lida:", err);
@@ -745,7 +775,7 @@ app.get("/exit", async (req, res) => {
 // Reset de sessão (quando há problemas de decrypt)
 app.get("/reset-session", async (req, res) => {
   try {
-    console.log("🔄 Resetando sessão...");
+    // console.log("🔄 Resetando sessão...");
     fs.rmSync("./auth", { recursive: true, force: true });
     if (sock) {
       await sock.logout().catch(() => {});
@@ -781,12 +811,12 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     });
   }
 
-  console.log(`📸 Solicitando foto para ${jid}`);
+  // console.log(`📸 Solicitando foto para ${jid}`);
 
   try {
     // Se já existe no cache, retorna
     if (fs.existsSync(filePath)) {
-      console.log(`✅ Usando cache local para ${jid}`);
+      // console.log(`✅ Usando cache local para ${jid}`);
       return res.json({ img: `/profile-pics/${safeJid}.jpg` });
     }
 
@@ -794,11 +824,11 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     let imgUrl;
     try {
       imgUrl = await sock.profilePictureUrl(jid, "image");
-      console.log(`🟢 URL recebida do WhatsApp: ${imgUrl}`);
+      // console.log(`🟢 URL recebida do WhatsApp: ${imgUrl}`);
     } catch (err) {
-      console.log(
-        `⚠️ Erro ao buscar URL no WhatsApp para ${jid}: ${err.message}`
-      );
+      // console.log(
+      //   `⚠️ Erro ao buscar URL no WhatsApp para ${jid}: ${err.message}`
+      // );
       const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
         jid
       )}&background=random`;
@@ -806,7 +836,7 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     }
 
     if (!imgUrl) {
-      console.log(`❌ Nenhuma URL retornada para ${jid}`);
+      // console.log(`❌ Nenhuma URL retornada para ${jid}`);
       const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
         jid
       )}&background=random`;
@@ -816,7 +846,7 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
     // Baixa e salva localmente
     const response = await axios.get(imgUrl, { responseType: "arraybuffer" });
     fs.writeFileSync(filePath, response.data);
-    console.log(`💾 Foto salva localmente: ${filePath}`);
+    // console.log(`💾 Foto salva localmente: ${filePath}`);
 
     return res.json({ img: `/profile-pics/${safeJid}.jpg` });
   } catch (err) {
@@ -832,11 +862,11 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
 app.get("/conversations", authMiddleware, async (req, res) => {
   try {
     const allConvs = await Conversation.find();
-    console.log("📋 Total de conversas:", allConvs.length);
+    // console.log("📋 Total de conversas:", allConvs.length);
 
     // Busca todos os contatos de uma vez
     const allContacts = await Contact.find();
-    console.log("📞 Total de contatos salvos:", allContacts.length);
+    // console.log("📞 Total de contatos salvos:", allContacts.length);
 
     // Cria um mapa de JID normalizado -> Contact para busca rápida
     const contactMap = {};
@@ -852,16 +882,16 @@ app.get("/conversations", authMiddleware, async (req, res) => {
       const convObj = conv.toObject();
 
       if (contactMap[normalizedJid]) {
-        console.log(
-          `✅ Contato encontrado para ${conv.jid}: ${contactMap[normalizedJid].name}`
-        );
+        // console.log(
+        //  `✅ Contato encontrado para ${conv.jid}: ${contactMap[normalizedJid].name}`
+        // );
         convObj.name = contactMap[normalizedJid].name;
       } else {
         // Se não há contato salvo, formata o número do telefone
         const formattedPhone = formatPhoneNumber(phoneNumber);
-        console.log(
-          `❌ Nenhum contato para ${conv.jid}, usando número formatado: ${formattedPhone}`
-        );
+        // console.log(
+        //  `❌ Nenhum contato para ${conv.jid}, usando número formatado: ${formattedPhone}`
+        // );
         convObj.name = formattedPhone;
       }
 
@@ -1037,6 +1067,216 @@ app.post("/send", authMiddleware, async (req, res) => {
   }
 });
 
+// ===== ENVIAR STICKER =====
+app.post(
+  "/send-sticker",
+  authMiddleware,
+  upload.single("sticker"),
+  async (req, res) => {
+    try {
+      const { jid } = req.body;
+
+      // Validações
+      if (!jid) {
+        return res.status(400).json({ error: "JID não fornecido" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Arquivo sticker não fornecido" });
+      }
+
+      if (!sock || lastStatus !== "conectado") {
+        return res.status(400).json({ error: "Bot não está conectado" });
+      }
+
+      // console.log(`📤 Enviando sticker para ${jid}`);
+      // console.log(`📦 Arquivo: ${req.file.originalname}, Tamanho: ${req.file.size} bytes`);
+
+      // ====== Converte PNG/JPEG para WebP se necessário ======
+      let stickerBuffer = req.file.buffer;
+      const fileExt = path.extname(req.file.originalname).toLowerCase();
+
+      if (fileExt !== ".webp") {
+        try {
+          console.log(`🔄 Convertendo ${fileExt} para WebP...`);
+          stickerBuffer = await sharp(req.file.buffer)
+            .webp({ quality: 80 })
+            .toBuffer();
+          console.log("✅ Conversão concluída!");
+        } catch (conversionErr) {
+          console.error("❌ Erro ao converter imagem:", conversionErr);
+          return res.status(400).json({
+            error: "Erro ao converter imagem para WebP",
+            detalhes: conversionErr.message,
+          });
+        }
+      }
+
+      // ====== Adiciona a mensagem de sticker ao banco de dados ======
+      let conv = await Conversation.findOne({ jid });
+      if (!conv) {
+        conv = new Conversation({
+          jid,
+          name: jid,
+          status: "queue",
+          messages: [],
+        });
+      }
+
+      const tempMessageId = `temp-${Date.now()}`;
+      const newMsg = {
+        type: "sticker",
+        fromMe: true,
+        timestamp: Date.now(),
+        messageId: tempMessageId,
+        status: "pending",
+      };
+
+      conv.messages.push(newMsg);
+      await conv.save();
+
+      // ====== Envia sticker ao WhatsApp ======
+      let sendResult;
+      try {
+        sendResult = await sock.sendMessage(jid, {
+          sticker: stickerBuffer, // Envia o buffer convertido
+        });
+
+        // console.log("✅ Sticker enviado com sucesso!");
+      } catch (err) {
+        console.error("⚠️ Erro no envio de sticker via Baileys:", err);
+        return res.status(500).json({
+          error: "Erro ao enviar sticker via WhatsApp",
+          detalhes: err.message,
+        });
+      }
+
+      // Atualiza ID e status
+      if (sendResult?.key?.id) {
+        const msgIndex = conv.messages.findIndex(
+          (m) => m.messageId === tempMessageId
+        );
+        if (msgIndex >= 0) {
+          conv.messages[msgIndex].messageId = sendResult.key.id;
+          conv.messages[msgIndex].status = "sent";
+          await conv.save();
+        }
+      }
+
+      // Salva cópia do sticker localmente para referência (sempre em WebP)
+      const filename = `${uuidv4()}.webp`;
+      const filepath = path.join(STICKER_DIR, filename);
+      fs.writeFileSync(filepath, stickerBuffer);
+
+      return res.json({
+        success: true,
+        message: {
+          type: "sticker",
+          fromMe: true,
+          messageId: sendResult?.key?.id || tempMessageId,
+          status: "sent",
+          timestamp: Date.now(),
+          url: `/stickers/${filename}`,
+        },
+      });
+    } catch (err) {
+      console.error("❌ Erro ao enviar sticker:", err);
+      res.status(500).json({
+        error: "Erro ao enviar sticker",
+        detalhes: err.message,
+      });
+    }
+  }
+);
+
+// ===== SALVAR STICKER RECEBIDO =====
+app.post(
+  "/save-sticker",
+  authMiddleware,
+  upload.single("sticker"),
+  async (req, res) => {
+    try {
+      const { jid, messageId } = req.body;
+
+      if (!jid) {
+        return res.status(400).json({ error: "JID não fornecido" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Arquivo sticker não fornecido" });
+      }
+
+      // Converte para WebP se necessário
+      let stickerBuffer = req.file.buffer;
+      const fileExt = path.extname(req.file.originalname).toLowerCase();
+
+      if (fileExt !== ".webp") {
+        try {
+          console.log(`🔄 Convertendo ${fileExt} para WebP...`);
+          stickerBuffer = await sharp(req.file.buffer)
+            .webp({ quality: 80 })
+            .toBuffer();
+        } catch (conversionErr) {
+          console.error("❌ Erro ao converter imagem:", conversionErr);
+          return res.status(400).json({
+            error: "Erro ao converter imagem para WebP",
+            detalhes: conversionErr.message,
+          });
+        }
+      }
+
+      // Salva o sticker localmente
+      const filename = `saved-${uuidv4()}.webp`;
+      const filepath = path.join(STICKER_DIR, filename);
+      fs.writeFileSync(filepath, stickerBuffer);
+
+      console.log(`💾 Sticker salvo: ${filename}`);
+
+      return res.json({
+        success: true,
+        message: "Sticker salvo com sucesso!",
+        filename: filename,
+        url: `/stickers/${filename}`,
+      });
+    } catch (err) {
+      console.error("❌ Erro ao salvar sticker:", err);
+      res.status(500).json({
+        error: "Erro ao salvar sticker",
+        detalhes: err.message,
+      });
+    }
+  }
+);
+
+// ===== LISTAR STICKERS SALVOS =====
+app.get("/stickers-list", authMiddleware, async (req, res) => {
+  try {
+    const stickersPath = STICKER_DIR;
+
+    if (!fs.existsSync(stickersPath)) {
+      return res.json({ success: true, stickers: [] });
+    }
+
+    const files = fs
+      .readdirSync(stickersPath)
+      .filter((f) => f.endsWith(".webp"))
+      .map((f) => ({
+        name: f,
+        url: `/stickers/${f}`,
+        timestamp: fs.statSync(path.join(stickersPath, f)).mtimeMs,
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    return res.json({ success: true, stickers: files });
+  } catch (err) {
+    console.error("❌ Erro ao listar stickers:", err);
+    res.status(500).json({
+      error: "Erro ao listar stickers",
+      detalhes: err.message,
+    });
+  }
+});
+
 app.get("/unread-count", authMiddleware, async (req, res) => {
   try {
     const totalUnread = await getTotalUnreadCount();
@@ -1114,27 +1354,27 @@ app.post("/contacts", authMiddleware, async (req, res) => {
 app.get("/contact-exists/:jid", authMiddleware, async (req, res) => {
   try {
     const { jid } = req.params;
-    console.log("🔍 Verificando contato com JID recebido:", jid);
+    // console.log("🔍 Verificando contato com JID recebido:", jid);
 
     // Normaliza o JID - extrai só o número
     const phoneNumber = jid.replace(/\D/g, "");
     const normalizedJid = `${phoneNumber}@c.us`;
 
-    console.log("📝 JID normalizado para busca:", normalizedJid);
+    // console.log("📝 JID normalizado para busca:", normalizedJid);
 
     // Tenta encontrar o contato
     const contact = await Contact.findOne({ jid: normalizedJid });
-    console.log("📊 Contato encontrado?", !!contact);
+    // console.log("📊 Contato encontrado?", !!contact);
 
     if (contact) {
-      console.log("✅ Detalhes:", { jid: contact.jid, name: contact.name });
+      // console.log("✅ Detalhes:", { jid: contact.jid, name: contact.name });
     } else {
       // Debug: busca todos os contatos para ver o que existe
       const allContacts = await Contact.find();
-      console.log(
-        "🔎 Todos os contatos no banco:",
-        allContacts.map((c) => ({ jid: c.jid, name: c.name }))
-      );
+      // console.log(
+      //   "🔎 Todos os contatos no banco:",
+      //   allContacts.map((c) => ({ jid: c.jid, name: c.name }))
+      // );
     }
 
     res.json({
@@ -1160,7 +1400,7 @@ app.delete("/contacts/:jid", authMiddleware, async (req, res) => {
     const phoneNumber = jid.replace(/\D/g, "");
     const normalizedJid = `${phoneNumber}@c.us`;
 
-    console.log("🗑️ Deletando contato com JID normalizado:", normalizedJid);
+    // console.log("🗑️ Deletando contato com JID normalizado:", normalizedJid);
 
     const result = await Contact.findOneAndDelete({ jid: normalizedJid });
 
@@ -1184,5 +1424,5 @@ initWASocket(io);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 API rodando em http://localhost:${PORT}`);
+  // console.log(`🚀 API rodando em http://localhost:${PORT}`);
 });

@@ -44,6 +44,117 @@ function clearRecentEmojis() {
     console.error("❌ Erro ao limpar emojis recentes:", err);
   }
 }
+
+// ===== GERENCIAMENTO DE STICKERS SEM DUPLICATAS =====
+const SAVED_STICKERS_KEY = "savedStickers";
+const MAX_SAVED_STICKERS = 100;
+
+async function generateStickerHash(url) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return hashHex;
+  } catch (err) {
+    console.error("❌ Erro ao gerar hash:", err);
+    return null;
+  }
+}
+
+function getSavedStickersHashes() {
+  try {
+    const stored = localStorage.getItem(SAVED_STICKERS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (err) {
+    console.error("❌ Erro ao carregar stickers salvos:", err);
+    return [];
+  }
+}
+
+async function addStickerToFavorites(stickerUrl, stickerName) {
+  try {
+    let stickers = getSavedStickersHashes();
+
+    // Gera hash do sticker para evitar duplicatas baseadas no conteúdo
+    const hash = await generateStickerHash(stickerUrl);
+    if (!hash) {
+      console.warn("⚠️ Não foi possível gerar hash do sticker");
+      return false;
+    }
+
+    // Verifica se já existe um sticker com o mesmo hash
+    const isDuplicate = stickers.some((s) => s.hash === hash);
+    if (isDuplicate) {
+      console.warn("⚠️ Este sticker já está salvo");
+      return false;
+    }
+
+    const newSticker = {
+      url: stickerUrl,
+      name: stickerName,
+      hash: hash,
+      addedAt: Date.now(),
+    };
+
+    // Adiciona novo
+    stickers.unshift(newSticker);
+
+    // Limita ao máximo
+    stickers = stickers.slice(0, MAX_SAVED_STICKERS);
+
+    localStorage.setItem(SAVED_STICKERS_KEY, JSON.stringify(stickers));
+    console.log("✅ Sticker adicionado aos favoritos!");
+    return true;
+  } catch (err) {
+    console.error("❌ Erro ao salvar nos favoritos:", err);
+    return false;
+  }
+}
+
+function removeStickerFromFavorites(stickerUrl) {
+  try {
+    let stickers = getSavedStickersHashes();
+    console.log("📍 Removendo sticker:", stickerUrl);
+    console.log("📍 Stickers antes:", stickers);
+
+    // Filtra removendo o sticker que tem a URL correspondente
+    stickers = stickers.filter((s) => {
+      const match = s.url === stickerUrl;
+      console.log(`Comparando ${s.url} === ${stickerUrl} ?`, match);
+      return !match;
+    });
+
+    console.log("📍 Stickers depois:", stickers);
+    localStorage.setItem(SAVED_STICKERS_KEY, JSON.stringify(stickers));
+    console.log("✅ Sticker removido com sucesso!");
+    return true;
+  } catch (err) {
+    console.error("❌ Erro ao remover de favoritos:", err);
+    return false;
+  }
+}
+
+async function isStickerInFavorites(stickerUrl) {
+  try {
+    const stickers = getSavedStickersHashes();
+    // Se já temos o hash, comparar por hash
+    const hash = await generateStickerHash(stickerUrl);
+    if (hash) {
+      return stickers.some((s) => s.hash === hash);
+    }
+    // Fallback: comparar por URL
+    return stickers.some((s) => s.url === stickerUrl);
+  } catch (err) {
+    console.error("❌ Erro ao verificar favoritos:", err);
+    return false;
+  }
+}
+
 let currentTab = 1;
 let isLoading = true;
 let currentChat = null; // ainda mantido para compatibilidade com outras partes
@@ -71,6 +182,11 @@ window.openAdd = openAdd;
 window.addContact = addContact;
 window.saveContactFromChat = saveContactFromChat;
 window.deleteContact = deleteContact;
+window.openStickerMenu = openStickerMenu;
+window.closeStickerMenu = closeStickerMenu;
+window.sendSticker = sendSticker;
+window.sendStickerFromFile = sendStickerFromFile;
+window.saveReceivedSticker = saveReceivedSticker;
 
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
 
@@ -80,7 +196,7 @@ const socket = io("http://localhost:3000", {
 });
 
 socket.on("connect", () => {
-  console.log("✅ Conectado ao servidor Socket.IO");
+  // console.log("✅ Conectado ao servidor Socket.IO");
 });
 // Quando uma nova mensagem chegar
 socket.on("message:new", async (msg) => {
@@ -94,7 +210,7 @@ socket.on("message:new", async (msg) => {
   }
 
   const unreadCount = await fetchUnreadCount();
-  console.log("🔔 Título sendo atualizado com:", unreadCount);
+  // console.log("🔔 Título sendo atualizado com:", unreadCount);
 
   if (unreadCount > 0) {
     document.title = `Chat - Automaconn Chat (${unreadCount})`;
@@ -124,7 +240,7 @@ async function fetchUnreadCount() {
 
     // Garante que é um número válido
     const validCount = Number.isInteger(count) ? count : 0;
-    console.log("📊 Não lidas:", validCount);
+    // console.log("📊 Não lidas:", validCount);
     return validCount;
   } catch (err) {
     console.error("❌ Erro em fetchUnreadCount:", err);
@@ -211,7 +327,7 @@ function emojis() {
 
 // Atualização de status (pendente, enviada, entregue, lida)
 socket.on("message:status", ({ messageId, status }) => {
-  console.log("🔄 Atualização de status recebida:", messageId, status);
+  // console.log("🔄 Atualização de status recebida:", messageId, status);
   // Atualiza o mapa interno
   messageStatusMap[messageId] = status;
 
@@ -221,7 +337,7 @@ socket.on("message:status", ({ messageId, status }) => {
 
 // Atualização do contador de não lidas (quando mensagens são marcadas como lidas)
 socket.on("unread:update", ({ jid, unreadCount }) => {
-  console.log("📊 Contador de não lidas atualizado:", unreadCount);
+  // console.log("📊 Contador de não lidas atualizado:", unreadCount);
   // Atualiza o título da página
   if (unreadCount > 0) {
     document.title = `Chat - Automaconn Chat (${unreadCount})`;
@@ -390,7 +506,7 @@ async function checkConnection() {
     const statusRes = await fetch("/status");
     const statusData = await statusRes.json();
 
-    console.log("Status atual:", statusData);
+    // console.log("Status atual:", statusData);
 
     if (statusData.status === "conectado") {
       // Tudo OK, continua normalmente
@@ -399,7 +515,7 @@ async function checkConnection() {
 
     if (statusData.status === "reconectando") {
       // Mostra mensagem mas não redireciona ainda
-      console.log("⏳ Aguardando reconexão...");
+      // console.log("⏳ Aguardando reconexão...");
       // Tenta novamente em 3 segundos
       setTimeout(checkConnection, 3000);
       return;
@@ -407,7 +523,7 @@ async function checkConnection() {
 
     // Se desconectado, redireciona para página de conexão
     if (statusData.status === "desconectado") {
-      console.log("❌ Desconectado, redirecionando...");
+      // console.log("❌ Desconectado, redirecionando...");
       window.location.href = "/connect.html";
     }
   } catch (error) {
@@ -656,11 +772,11 @@ async function checkAndToggleSaveContactButton(jid) {
   const saveContactBtn = document.getElementById("save-contact-btn");
   const deleteContactBtn = document.getElementById("delete-contact-btn");
 
-  console.log("🔍 Verificando contato com JID:", jid);
-  console.log("Botões encontrados:", {
-    saveContactBtn: !!saveContactBtn,
-    deleteContactBtn: !!deleteContactBtn,
-  });
+  // console.log("🔍 Verificando contato com JID:", jid);
+  // console.log("Botões encontrados:", {
+  //   saveContactBtn: !!saveContactBtn,
+  //   deleteContactBtn: !!deleteContactBtn,
+  // });
 
   const token = getToken();
   if (!token) {
@@ -672,26 +788,26 @@ async function checkAndToggleSaveContactButton(jid) {
 
   try {
     const encodedJid = encodeURIComponent(jid);
-    console.log("📤 Enviando para API:", `/contact-exists/${encodedJid}`);
+    // console.log("📤 Enviando para API:", `/contact-exists/${encodedJid}`);
 
     const res = await fetch(`/contact-exists/${encodedJid}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    console.log("📡 Status da API:", res.status);
+    // console.log("📡 Status da API:", res.status);
 
     if (res.ok) {
       const data = await res.json();
-      console.log("✅ Resposta da API:", JSON.stringify(data));
+      // console.log("✅ Resposta da API:", JSON.stringify(data));
 
       // Se o contato não existe, mostra botão de salvar
       if (data.exists === false) {
-        console.log("📍 Contato NÃO existe - mostrando botão 'Salvar'");
+        // console.log("📍 Contato NÃO existe - mostrando botão 'Salvar'");
         if (saveContactBtn) saveContactBtn.classList.add("visible");
         if (deleteContactBtn) deleteContactBtn.classList.remove("visible");
       } else {
         // Se o contato existe, mostra botão de deletar
-        console.log("📍 Contato existe - mostrando botão 'Deletar'");
+        // console.log("📍 Contato existe - mostrando botão 'Deletar'");
         if (saveContactBtn) saveContactBtn.classList.remove("visible");
         if (deleteContactBtn) deleteContactBtn.classList.add("visible");
       }
@@ -898,9 +1014,9 @@ span.addEventListener("click", () => {
 fileInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (file) {
-    console.log("Arquivo selecionado:", file.name);
-    console.log("Tipo:", file.type);
-    console.log("Tamanho:", file.size);
+    // console.log("Arquivo selecionado:", file.name);
+    // console.log("Tipo:", file.type);
+    // console.log("Tamanho:", file.size);
     fileBlock.style.display = "block";
     fileInfo.innerHTML = `
       <img src="../images/file-icon.png" alt="file" class="file-icon"/>
@@ -935,6 +1051,339 @@ function emojiWindow() {
   }
 }
 
+// ===== GERENCIAMENTO DE STICKERS =====
+var stickerMenuOpen = false;
+
+function openStickerMenu() {
+  const stickerMenu = document.getElementById("stickers-menu");
+  const stickersInput = document.getElementById("sticker-input");
+  const emojiDiv = document.getElementById("emojis");
+
+  if (!stickerMenuOpen) {
+    // Fecha emoji se estiver aberto
+    if (emojiOpen) {
+      emojiDiv.style.display = "none";
+      emojiOpen = false;
+    }
+
+    stickerMenu.style.display = "flex";
+    stickerMenuOpen = true;
+
+    // Carrega stickers salvos
+    loadSavedStickers();
+
+    // Evento para upload
+    stickersInput.addEventListener("change", handleStickerUpload);
+  } else {
+    closeStickerMenu();
+  }
+}
+
+function closeStickerMenu() {
+  const stickerMenu = document.getElementById("stickers-menu");
+  stickerMenu.style.display = "none";
+  stickerMenuOpen = false;
+}
+
+function loadSavedStickers() {
+  const stickersList = document.getElementById("stickers-list");
+  const token = getToken();
+
+  if (!token) return;
+
+  // Limpa a lista
+  stickersList.innerHTML = "";
+
+  // Faz fetch para listar stickers salvos
+  fetch("/stickers-list", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((res) => res.json())
+    .then(async (data) => {
+      if (data.success && data.stickers.length > 0) {
+        console.log("📦 Stickers carregados:", data.stickers);
+
+        // Deduplica por URL
+        const seenUrls = new Set();
+        const uniqueStickers = data.stickers.filter((sticker) => {
+          if (seenUrls.has(sticker.url)) {
+            return false;
+          }
+          seenUrls.add(sticker.url);
+          return true;
+        });
+
+        // Filtra apenas os stickers que estão nos favoritos
+        const favoriteStickers = [];
+        for (const sticker of uniqueStickers) {
+          const inFavs = await isStickerInFavorites(sticker.url);
+          console.log(`📍 ${sticker.name} está nos favoritos?`, inFavs);
+          if (inFavs) {
+            favoriteStickers.push(sticker);
+          }
+        }
+
+        if (favoriteStickers.length === 0) {
+          console.log("📦 Nenhum sticker favoritado");
+          stickersList.innerHTML =
+            '<p style="grid-column: 1/3; text-align: center; color: #999;">Nenhum sticker favoritado</p>';
+          return;
+        }
+
+        // Ordena por data de adição (mais recentes primeiro)
+        const savedStickers = getSavedStickersHashes();
+        favoriteStickers.sort((a, b) => {
+          const aIndex = savedStickers.findIndex((s) => s.url === a.url);
+          const bIndex = savedStickers.findIndex((s) => s.url === b.url);
+          return bIndex - aIndex; // Mais recentes primeiro
+        });
+
+        favoriteStickers.forEach((sticker) => {
+          const stickerDiv = document.createElement("div");
+          stickerDiv.className = "sticker-item";
+          stickerDiv.id = `sticker-${sticker.url.replace(/[^a-zA-Z0-9]/g, "")}`;
+
+          stickerDiv.innerHTML = `
+            <div style="position: relative; width: 100%; height: 100%;">
+              <img src="${sticker.url}" alt="sticker" style="width: 100%; height: 100%;" />
+              <span style="position: absolute; top: 2px; right: 2px; font-size: 1.2em;">⭐</span>
+            </div>
+            <span class="sticker-item-name">${sticker.name}</span>
+          `;
+
+          // Clique normal envia o sticker
+          stickerDiv.onclick = async () => {
+            await sendStickerFromFile(sticker.url, sticker.name);
+          };
+
+          // Clique com botão direito mostra menu de contexto
+          stickerDiv.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            showStickerContextMenu(e, sticker.url, stickerDiv);
+          });
+
+          stickersList.appendChild(stickerDiv);
+        });
+      } else {
+        console.log("📦 Nenhum sticker salvo ainda");
+        stickersList.innerHTML =
+          '<p style="grid-column: 1/3; text-align: center; color: #999;">Nenhum sticker favoritado</p>';
+      }
+    })
+    .catch((err) => console.error("❌ Erro ao carregar stickers:", err));
+}
+
+async function handleStickerUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Validação de tipo - agora aceita webp, png e jpeg
+  const allowedTypes = ["image/webp", "image/png", "image/jpeg"];
+  const isValidType =
+    allowedTypes.includes(file.type) ||
+    /\.(webp|png|jpg|jpeg)$/i.test(file.name);
+
+  if (!isValidType) {
+    alert("❌ Por favor, selecione um arquivo .webp, .png ou .jpeg");
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert("❌ O arquivo deve ter menos de 10MB");
+    return;
+  }
+
+  // Faz upload/envio
+  await sendSticker(file);
+}
+
+async function sendSticker(file) {
+  const token = getToken();
+  const jid = currentChatJid;
+
+  if (!token) {
+    alert("❌ Você não está logado");
+    return;
+  }
+
+  if (!jid) {
+    alert("❌ Nenhuma conversa aberta");
+    return;
+  }
+
+  try {
+    console.log("📤 Enviando sticker...");
+
+    // Cria FormData para envio de arquivo
+    const formData = new FormData();
+    formData.append("sticker", file);
+    formData.append("jid", jid);
+
+    const res = await fetch("/send-sticker", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      console.log("✅ Sticker enviado com sucesso!");
+
+      // Renderiza o sticker na conversa
+      renderMessage({
+        type: "sticker",
+        fromMe: true,
+        messageId: data.message.messageId,
+        status: "sent",
+        timestamp: Date.now(),
+        url: data.message.url,
+        jid: jid,
+      });
+
+      // Fecha o menu
+      closeStickerMenu();
+
+      // Limpa input
+      document.getElementById("sticker-input").value = "";
+
+      // Rola para o fim
+      scrollToBottom(true);
+    } else {
+      alert(`❌ Erro: ${data.error || "Não foi possível enviar o sticker"}`);
+    }
+  } catch (err) {
+    console.error("❌ Erro ao enviar sticker:", err);
+    alert("❌ Erro ao enviar sticker. Tente novamente.");
+  }
+}
+
+// ===== ENVIAR STICKER DA GALERIA =====
+async function sendStickerFromFile(stickerUrl, stickerName) {
+  const token = getToken();
+  const jid = currentChatJid;
+
+  if (!token) {
+    alert("❌ Você não está logado");
+    return;
+  }
+
+  if (!jid) {
+    alert("❌ Nenhuma conversa aberta");
+    return;
+  }
+
+  try {
+    console.log(`📤 Enviando sticker da galeria: ${stickerName}`);
+
+    // Busca o sticker e cria um blob
+    const res = await fetch(stickerUrl);
+    const blob = await res.blob();
+
+    // Cria FormData
+    const formData = new FormData();
+    formData.append("sticker", blob, stickerName);
+    formData.append("jid", jid);
+
+    const sendRes = await fetch("/send-sticker", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await sendRes.json();
+
+    if (sendRes.ok) {
+      console.log("✅ Sticker enviado com sucesso!");
+      alert("✅ Sticker enviado!");
+
+      // Renderiza o sticker
+      renderMessage({
+        type: "sticker",
+        fromMe: true,
+        messageId: data.message.messageId,
+        status: "sent",
+        timestamp: Date.now(),
+        url: data.message.url,
+        jid: jid,
+      });
+
+      // Rola para o fim
+      scrollToBottom(true);
+    } else {
+      alert(`❌ Erro: ${data.error}`);
+    }
+  } catch (err) {
+    console.error("❌ Erro ao enviar sticker:", err);
+    alert("❌ Erro ao enviar sticker.");
+  }
+}
+
+// ===== SALVAR STICKER RECEBIDO =====
+async function saveReceivedSticker(stickerUrl, messageId) {
+  const token = getToken();
+
+  if (!token) {
+    console.warn("❌ Você não está logado");
+    return false;
+  }
+
+  try {
+    // Verifica se já está salvo (usando hash)
+    const inFavorites = await isStickerInFavorites(stickerUrl);
+    if (inFavorites) {
+      alert("⚠️ Este sticker já está salvo nos favoritos!");
+      return false;
+    }
+
+    console.log(`💾 Salvando sticker: ${stickerUrl}`);
+
+    // Busca o sticker
+    const res = await fetch(stickerUrl);
+    const blob = await res.blob();
+
+    // Cria FormData
+    const formData = new FormData();
+    formData.append("sticker", blob, `sticker-${messageId}.webp`);
+    formData.append("messageId", messageId);
+
+    const saveRes = await fetch("/save-sticker", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await saveRes.json();
+
+    if (saveRes.ok) {
+      console.log("✅ Sticker salvo com sucesso!");
+      // Adiciona aos favoritos locais (sem duplicatas)
+      const success = await addStickerToFavorites(
+        data.url || stickerUrl,
+        `sticker-${messageId}.webp`
+      );
+      if (success) {
+        alert("✅ Sticker salvo! 📌");
+      }
+      return true;
+    } else {
+      console.warn(`⚠️ Erro ao salvar: ${data.error}`);
+      return false;
+    }
+  } catch (err) {
+    console.error("❌ Erro ao salvar sticker:", err);
+    return false;
+  }
+}
+
 // ===== RENDERIZAR BOTÕES DE STATUS =====
 function renderStatusButtons(c) {
   const statusContainer = document.getElementById("status-buttons");
@@ -953,28 +1402,126 @@ function renderMessages(chatContainer, messages) {
   chatContainer.innerHTML = "";
 
   messages.forEach((msg) => {
-    // Evita duplicar mensagens enviadas por mim
     if (msg.fromMe && sentThisSession.includes(msg.messageId)) return;
+
+    const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
     if (msg.type === "sticker") {
       const div = document.createElement("div");
+      div.id = msg.messageId;
       div.className = `msg ${msg.fromMe ? "me" : "client"}`;
-      div.innerHTML = `
-        <div class="sticker-wrapper">
-          <img class="sticker-img" src="${msg.url}" alt="figurinha" />
-        </div>
-        <p class="msg-hour ${msg.fromMe ? "" : "client"}">${time}</p>
+
+      const stickerWrapper = document.createElement("div");
+      stickerWrapper.className = "sticker-wrapper";
+      stickerWrapper.style.cssText = `
+        position: relative;
+        display: inline-block;
+        margin-bottom: 0.5em;
+        cursor: context-menu;
       `;
-      chatHistory.appendChild(div);
+
+      const img = document.createElement("img");
+      img.className = "sticker-img";
+      img.src = msg.url;
+      img.alt = "figurinha";
+      img.style.cssText = `
+        width: 70%;
+        height: auto;
+        border-radius: 0.5em;
+        display: block;
+      `;
+      img.onerror = () => {
+        img.src = "/images/sticker-fallback.png";
+      };
+
+      stickerWrapper.appendChild(img);
+
+      // Evento de contexto
+      stickerWrapper.addEventListener("contextmenu", (e) => {
+        showContextMenu(e, msg.messageId, true, msg.fromMe);
+      });
+
+      const infoContainer = document.createElement("div");
+      infoContainer.className = `msg-info ${msg.fromMe ? "" : "client"}`;
+      infoContainer.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        margin-top: 0.3em;
+      `;
+
+      const statusInfoWrapper = document.createElement("div");
+      statusInfoWrapper.style.cssText = `
+        background-color: #3e5641;
+        padding: 8px;
+        padding-left: 0;
+        border-radius: 1em;
+        display: flex;
+        gap: 0.5em;
+        position: relative;
+        left: 1.9em;
+        align-items: center;
+      `;
+
+      const hourEl = document.createElement("p");
+      hourEl.textContent = time;
+      hourEl.className = `msg-hour sticker ${msg.fromMe ? "" : "client"}`;
+      hourEl.style.cssText = `
+        margin: 0;
+        top: unset;
+        left: 0.7em;
+      `;
+      statusInfoWrapper.appendChild(hourEl);
+
+      if (msg.fromMe && msg.status) {
+        const statusEl = document.createElement("img");
+        statusEl.className = "msg-status";
+        statusEl.src = `../images/${msg.status}.png`;
+        statusEl.style.cssText = `
+          font-size: 0.9em;
+          color: #8f8f8f;
+          margin: 0;
+          left: 0.23em;
+          top: unset;
+        `;
+        statusInfoWrapper.appendChild(statusEl);
+      }
+
+      infoContainer.appendChild(statusInfoWrapper);
+
+      if (!msg.fromMe) {
+        const saveBtn = document.createElement("button");
+        saveBtn.textContent = "💾";
+        saveBtn.style.cssText = `
+          font-size: 0.8em;
+          padding: 2px 6px;
+          border-radius: 4px;
+          border: 1px solid #999;
+          background: #f0f0f0;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        `;
+        saveBtn.onclick = () => saveReceivedSticker(msg.url, msg.messageId);
+        infoContainer.appendChild(saveBtn);
+      }
+
+      div.appendChild(stickerWrapper);
+      div.appendChild(infoContainer);
+      chatContainer.appendChild(div);
       return;
     }
 
     const div = document.createElement("div");
     div.id = msg.messageId;
     div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
-    const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
+    div.style.cursor = "context-menu";
+
+    // Evento de contexto para mensagens de texto
+    div.addEventListener("contextmenu", (e) => {
+      showContextMenu(e, msg.messageId, false, msg.fromMe);
     });
 
     if (msg.fromMe) {
@@ -1001,54 +1548,509 @@ function renderMessages(chatContainer, messages) {
   scrollToBottom(false);
 }
 
-// Formata asteriscos em <strong>
-function formatarAsteriscos(texto) {
-  if (!texto || typeof texto !== "string") return "";
-  return texto.replace(/\*([^*]+)\*/g, "<strong>$1</strong><br>");
+// Criar elemento de menu contexto
+function createContextMenu() {
+  if (document.getElementById("context-menu")) return;
+
+  const menu = document.createElement("div");
+  menu.id = "context-menu";
+  menu.className = "context-menu";
+  menu.style.cssText = `
+    position: fixed;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 0.5em;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 10000;
+    display: none;
+    min-width: 180px;
+    padding: 0.5em 0;
+  `;
+
+  document.body.appendChild(menu);
 }
 
-// Renderiza uma única mensagem (usado por socket e por envio local)
+// Adicionar item ao menu contexto
+function addContextMenuItem(menu, label, icon, callback, divider = false) {
+  const item = document.createElement("div");
+  item.className = "context-menu-item";
+  item.style.cssText = `
+    padding: 0.6em 1em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    font-size: 0.9em;
+    border-bottom: ${divider ? "1px solid #eee" : "none"};
+    transition: background 0.2s ease;
+  `;
+
+  item.innerHTML = `<span style="min-width: 18px;">${icon}</span><span>${label}</span>`;
+
+  item.addEventListener("mouseenter", () => {
+    item.style.background = "#f0f0f0";
+  });
+
+  item.addEventListener("mouseleave", () => {
+    item.style.background = "transparent";
+  });
+
+  item.addEventListener("click", () => {
+    callback();
+    menu.style.display = "none";
+  });
+
+  menu.appendChild(item);
+}
+
+// Mostrar menu contexto
+function showContextMenu(e, messageId, isSticker = false, isFromMe = false) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  createContextMenu();
+  const menu = document.getElementById("context-menu");
+
+  // Limpar itens anteriores
+  menu.innerHTML = "";
+
+  // ===== AÇÕES PARA STICKERS =====
+  if (isSticker) {
+    addContextMenuItem(menu, "Favoritar", "⭐", async () => {
+      const msgDiv = document.getElementById(messageId);
+      if (!msgDiv) return;
+
+      const stickerUrl = msgDiv.querySelector(".sticker-img")?.src;
+      if (stickerUrl) {
+        const success = await saveReceivedSticker(stickerUrl, messageId);
+        if (success) {
+          showNotification("✅ Sticker adicionado aos favoritos!");
+        }
+      }
+    });
+
+    addContextMenuItem(
+      menu,
+      "Copiar",
+      "📋",
+      async () => {
+        const msgDiv = document.getElementById(messageId);
+        if (!msgDiv) return;
+
+        const img = msgDiv.querySelector(".sticker-img");
+        if (img) {
+          try {
+            const response = await fetch(img.src);
+            const blob = await response.blob();
+            await navigator.clipboard.write([
+              new ClipboardItem({ "image/png": blob }),
+            ]);
+            showNotification("✅ Sticker copiado!");
+          } catch (err) {
+            console.error("Erro ao copiar:", err);
+          }
+        }
+      },
+      true
+    );
+  } else {
+    // ===== AÇÕES PARA TEXTO =====
+    addContextMenuItem(menu, "Copiar", "📋", () => {
+      const msgDiv = document.getElementById(messageId);
+      if (msgDiv) {
+        const textEl = msgDiv.querySelector(".msg-bubble-text");
+        if (textEl) {
+          const text = textEl.textContent;
+          navigator.clipboard.writeText(text).then(() => {
+            showNotification("✅ Copiado!");
+          });
+        }
+      }
+    });
+
+    addContextMenuItem(menu, "Responder", "↩️", () => {
+      const msgDiv = document.getElementById(messageId);
+      if (msgDiv) {
+        const textEl = msgDiv.querySelector(".msg-bubble-text");
+        if (textEl) {
+          const text = textEl.textContent;
+          const input = document.getElementById("text");
+          if (input) {
+            input.value = `> ${text}\n`;
+            input.focus();
+          }
+        }
+      }
+    });
+  }
+
+  // ===== AÇÕES PARA MENSAGENS ENVIADAS =====
+  if (isFromMe) {
+    addContextMenuItem(
+      menu,
+      "Editar",
+      "✏️",
+      () => {
+        const msgDiv = document.getElementById(messageId);
+        if (msgDiv) {
+          const textEl = msgDiv.querySelector(".msg-bubble-text");
+          if (textEl) {
+            const text = textEl.textContent;
+            const input = document.getElementById("text");
+            if (input) {
+              input.value = text;
+              input.focus();
+              // Marca como em edição
+              input.dataset.editingId = messageId;
+              showNotification("⚠️ Modo de edição ativo");
+            }
+          }
+        }
+      },
+      true
+    );
+
+    addContextMenuItem(menu, "Deletar", "🗑️", async () => {
+      if (confirm("Tem certeza que deseja deletar esta mensagem?")) {
+        // TODO: Implementar exclusão no backend
+        const msgDiv = document.getElementById(messageId);
+        if (msgDiv) {
+          msgDiv.style.opacity = "0.5";
+          msgDiv.style.textDecoration = "line-through";
+          showNotification("✅ Mensagem deletada!");
+        }
+      }
+    });
+  } else {
+    // ===== AÇÕES PARA MENSAGENS RECEBIDAS =====
+    if (!isSticker) {
+      addContextMenuItem(
+        menu,
+        "Responder",
+        "↩️",
+        () => {
+          const msgDiv = document.getElementById(messageId);
+          if (msgDiv) {
+            const textEl = msgDiv.querySelector(".msg-bubble-text");
+            if (textEl) {
+              const text = textEl.textContent;
+              const input = document.getElementById("text");
+              if (input) {
+                input.value = `> ${text}\n`;
+                input.focus();
+              }
+            }
+          }
+        },
+        true
+      );
+    }
+  }
+
+  // ===== AÇÕES GERAIS =====
+  if (!isSticker) {
+    addContextMenuItem(menu, "Favoritar", "❤️", () => {
+      const msgDiv = document.getElementById(messageId);
+      if (msgDiv) {
+        msgDiv.style.background =
+          msgDiv.style.background === "rgb(255, 250, 205)" ? "" : "#fffacd";
+        showNotification("❤️ Mensagem favoritada!");
+      }
+    });
+  }
+
+  // Posicionar menu
+  menu.style.display = "block";
+  menu.style.left = e.pageX + "px";
+  menu.style.top = e.pageY + "px";
+
+  // Ajustar se sair da tela
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = window.innerWidth - rect.width - 10 + "px";
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = window.innerHeight - rect.height - 10 + "px";
+    }
+  }, 0);
+}
+
+// ===== MENU DE CONTEXTO PARA STICKERS FAVORITADOS =====
+function showStickerContextMenu(e, stickerUrl, stickerDiv) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  createContextMenu();
+  const menu = document.getElementById("context-menu");
+  menu.innerHTML = "";
+
+  // Opção de enviar
+  addContextMenuItem(menu, "Enviar", "📤", async () => {
+    // Pega o nome do sticker
+    const nameEl = stickerDiv.querySelector(".sticker-item-name");
+    const name = nameEl ? nameEl.textContent : "figurinha";
+    await sendStickerFromFile(stickerUrl, name);
+  });
+
+  // Opção de copiar
+  addContextMenuItem(menu, "Copiar", "📋", async () => {
+    try {
+      const response = await fetch(stickerUrl);
+      const blob = await response.blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob }),
+      ]);
+      showNotification("✅ Sticker copiado!");
+    } catch (err) {
+      console.error("Erro ao copiar:", err);
+      showNotification("❌ Erro ao copiar!");
+    }
+  });
+
+  // Opção de desfavoritar
+  addContextMenuItem(menu, "Desfavoritar", "🗑️", async () => {
+    console.log("🔍 Iniciando remoção de:", stickerUrl);
+    const success = removeStickerFromFavorites(stickerUrl);
+    console.log("🔍 Resultado da remoção:", success);
+
+    if (success) {
+      stickerDiv.style.opacity = "0.5";
+      stickerDiv.style.pointerEvents = "none";
+      showNotification("✅ Sticker removido dos favoritos!");
+      setTimeout(() => {
+        console.log("🔄 Recarregando galeria...");
+        loadSavedStickers(); // Recarrega a lista
+      }, 500);
+    } else {
+      showNotification("❌ Erro ao remover sticker!");
+    }
+  });
+
+  // Posicionar menu
+  menu.style.display = "block";
+  menu.style.left = e.pageX + "px";
+  menu.style.top = e.pageY + "px";
+
+  // Ajustar se sair da tela
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = window.innerWidth - rect.width - 10 + "px";
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = window.innerHeight - rect.height - 10 + "px";
+    }
+  }, 0);
+}
+
+// Fechar menu contexto ao clicar em outro lugar
+document.addEventListener("click", () => {
+  const menu = document.getElementById("context-menu");
+  if (menu) menu.style.display = "none";
+});
+
+// Notificação temporária
+function showNotification(message) {
+  const notification = document.createElement("div");
+  notification.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #333;
+    color: white;
+    padding: 1em;
+    border-radius: 0.5em;
+    z-index: 10001;
+    animation: slideIn 0.3s ease;
+  `;
+  notification.textContent = message;
+
+  // Adicionar animação
+  const style = document.createElement("style");
+  if (!document.querySelector("style[data-notification]")) {
+    style.setAttribute("data-notification", "true");
+    style.textContent = `
+      @keyframes slideIn {
+        from { transform: translateX(400px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(400px); opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  document.body.appendChild(notification);
+
+  setTimeout(() => {
+    notification.style.animation = "slideOut 0.3s ease";
+    setTimeout(() => notification.remove(), 300);
+  }, 2000);
+}
+
+// ===== RENDERIZAR MENSAGEM ÚNICA - CORRIGIDA =====
 function renderMessage(msg) {
   if (!msg || !msg.jid) return;
   const chatContainer = document.getElementById("chat-history");
   if (!chatContainer) return;
 
+  if (document.getElementById(msg.messageId)) return;
+
   if (msg.type === "sticker") {
     const msgDiv = document.createElement("div");
+    msgDiv.id = msg.messageId;
     msgDiv.className = `msg ${msg.fromMe ? "me" : "client"}`;
+
+    const stickerContainer = document.createElement("div");
+    stickerContainer.className = "sticker-wrapper";
+    stickerContainer.style.cssText = `
+      position: relative;
+      display: inline-block;
+      margin-bottom: 0.5em;
+      cursor: context-menu;
+    `;
 
     const stickerImg = document.createElement("img");
     stickerImg.src = msg.url;
     stickerImg.alt = "figurinha";
     stickerImg.className = "sticker-img";
-
-    // fallback caso falhe
+    stickerImg.style.cssText = `
+      width: 70%;
+      height: auto;
+      border-radius: 0.5em;
+      display: block;
+      position: relative;
+      left: 4em;
+    `;
     stickerImg.onerror = () => {
       stickerImg.src = "/images/sticker-fallback.png";
     };
 
-    msgDiv.appendChild(stickerImg);
+    stickerContainer.appendChild(stickerImg);
 
-    // horário
+    // Evento de contexto
+    stickerContainer.addEventListener("contextmenu", (e) => {
+      showContextMenu(e, msg.messageId, true, msg.fromMe);
+    });
+
+    if (!msg.fromMe) {
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "sticker-save-btn";
+      saveBtn.innerHTML = "📌";
+      saveBtn.style.cssText = `
+        position: absolute;
+        bottom: 5px;
+        right: 5px;
+        padding: 4px 8px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        display: none;
+        transition: all 0.2s ease;
+      `;
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true;
+        const success = await saveReceivedSticker(msg.url, msg.messageId);
+        if (success) {
+          saveBtn.textContent = "✅";
+          setTimeout(() => {
+            saveBtn.textContent = "📌";
+            saveBtn.disabled = false;
+          }, 2000);
+        }
+      };
+
+      stickerContainer.appendChild(saveBtn);
+
+      stickerContainer.onmouseover = () => {
+        saveBtn.style.display = "block";
+      };
+      stickerContainer.onmouseout = () => {
+        saveBtn.style.display = "none";
+      };
+    }
+
+    msgDiv.appendChild(stickerContainer);
+
+    const infoContainer = document.createElement("div");
+    infoContainer.className = `msg-info ${msg.fromMe ? "" : "client"}`;
+    infoContainer.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      margin-top: 0.3em;
+    `;
+
+    // Definir time aqui
+    const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const statusInfoWrapper = document.createElement("div");
+    statusInfoWrapper.style.cssText = `
+      background-color: #3e5641;
+      padding: 8px;
+      padding-left: 0;
+      border-radius: 0.8em;
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+      position: relative;
+      left: 1.9em;
+    `;
+
     const hourEl = document.createElement("p");
-    hourEl.className = `msg-hour ${msg.fromMe ? "" : "client"}`;
+    hourEl.className = `msg-hour sticker ${msg.fromMe ? "" : "client"}`;
     hourEl.textContent = time;
-    msgDiv.appendChild(hourEl);
+    hourEl.style.cssText = `
+      margin: 0;
+      top: unset;
+      left: 0.7em;
+    `;
+    statusInfoWrapper.appendChild(hourEl);
 
-    chatHistory.appendChild(msgDiv);
-    chatHistory.scrollTop = chatHistory.scrollHeight; // auto scroll
+    if (msg.fromMe && msg.status) {
+      const statusSpan = document.createElement("img");
+      statusSpan.className = "msg-status";
+      statusSpan.src = `../images/${msg.status}.png`;
+      statusSpan.style.cssText = `
+        font-size: 0.9em;
+        color: #8f8f8f;
+        margin: 0;
+        top: unset;
+        left: 0.23em;
+      `;
+      statusInfoWrapper.appendChild(statusSpan);
+    }
+
+    infoContainer.appendChild(statusInfoWrapper);
+    msgDiv.appendChild(infoContainer);
+
+    chatContainer.appendChild(msgDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
     return;
   }
-
-  // Evita duplicatas
-  if (document.getElementById(msg.messageId)) return;
 
   const div = document.createElement("div");
   div.id = msg.messageId;
   div.className = msg.fromMe ? "msg-bubble" : "msg-bubble client";
+  div.style.cursor = "context-menu";
+
   const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
+  });
+
+  // Evento de contexto
+  div.addEventListener("contextmenu", (e) => {
+    showContextMenu(e, msg.messageId, false, msg.fromMe);
   });
 
   if (msg.fromMe) {
@@ -1071,11 +2073,15 @@ function renderMessage(msg) {
   }
 
   chatContainer.appendChild(div);
-
-  // 🔽 Rola após renderização completa
   setTimeout(() => {
     chatContainer.scrollTop = chatContainer.scrollHeight;
   }, 50);
+}
+
+// Formata asteriscos em <strong>
+function formatarAsteriscos(texto) {
+  if (!texto || typeof texto !== "string") return "";
+  return texto.replace(/\*([^*]+)\*/g, "<strong>$1</strong><br>");
 }
 
 // Atualiza preview de conversa (simples: recarrega lista)
