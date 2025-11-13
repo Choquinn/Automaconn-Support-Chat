@@ -852,6 +852,7 @@ async function fetchConversations() {
         });
       }
 
+      // Exibe o nome diretamente (backend já retorna número ou nome salvo)
       div.querySelector(".client-name").textContent = c.name;
 
       // Formata asteriscos em <strong>
@@ -1199,6 +1200,8 @@ async function openChat(jid) {
     });
 
     const data = await res.json();
+
+    // Backend já retorna número ou nome salvo
     if (headerName) headerName.textContent = data.name;
 
     // Atualiza imagem (tenta buscar no backend)

@@ -26,6 +26,61 @@ const PROFILE_CACHE_DIR = path.join(__dirname, "public", "profile-pics");
 const STICKER_DIR = path.join(__dirname, "public", "stickers");
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
+// Função para formatar número de telefone:
+// 558893469953 (13 dígitos com 55) → (88) 9 8834-69953
+// 5588934699 (11 dígitos com 55, sem 9) → (88) 3469-9953
+function formatPhoneNumber(phoneNumber) {
+  let cleanNumber = phoneNumber.replace(/\D/g, "");
+
+  console.log(
+    `📞 Formatando número: ${phoneNumber} → ${cleanNumber} (${cleanNumber.length} dígitos)`
+  );
+
+  // Remove o código de país (55) se estiver no início
+  if (cleanNumber.startsWith("55")) {
+    if (cleanNumber.length === 13) {
+      // Com 9: 558893469953 → 8893469953 (11 dígitos)
+      cleanNumber = cleanNumber.substring(2);
+      console.log(
+        `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (COM o 9)`
+      );
+    } else if (cleanNumber.length === 12) {
+      // Sem 9: 5588934699 → 88934699 (10 dígitos)
+      cleanNumber = cleanNumber.substring(2);
+      console.log(
+        `🌍 Removido código de país: agora tem ${cleanNumber.length} dígitos (SEM o 9)`
+      );
+    }
+  }
+
+  // Formata de acordo com a quantidade de dígitos
+  if (cleanNumber.length === 11) {
+    // COM o 9: (XX) 9 XXXX-XXXX
+    const areaCode = cleanNumber.substring(0, 2);
+    const firstDigit = cleanNumber.substring(2, 3);
+    const middlePart = cleanNumber.substring(3, 7);
+    const lastPart = cleanNumber.substring(7, 11);
+
+    const formatted = `(${areaCode}) ${firstDigit} ${middlePart}-${lastPart}`;
+    console.log(`✅ Número formatado (COM 9): ${formatted}`);
+    return formatted;
+  } else if (cleanNumber.length === 10) {
+    // SEM o 9: (XX) XXXX-XXXX
+    const areaCode = cleanNumber.substring(0, 2);
+    const firstPart = cleanNumber.substring(2, 6);
+    const lastPart = cleanNumber.substring(6, 10);
+
+    const formatted = `(${areaCode}) ${firstPart}-${lastPart}`;
+    console.log(`✅ Número formatado (SEM 9): ${formatted}`);
+    return formatted;
+  } else {
+    console.log(
+      `⚠️ Número não tem 10 ou 11 dígitos, retornando sem formatação`
+    );
+    return cleanNumber;
+  }
+}
+
 require("./database.js");
 
 const app = express();
@@ -777,9 +832,11 @@ app.get("/update-profile-picture/:jid", authMiddleware, async (req, res) => {
 app.get("/conversations", authMiddleware, async (req, res) => {
   try {
     const allConvs = await Conversation.find();
+    console.log("📋 Total de conversas:", allConvs.length);
 
     // Busca todos os contatos de uma vez
     const allContacts = await Contact.find();
+    console.log("📞 Total de contatos salvos:", allContacts.length);
 
     // Cria um mapa de JID normalizado -> Contact para busca rápida
     const contactMap = {};
@@ -793,8 +850,19 @@ app.get("/conversations", authMiddleware, async (req, res) => {
       const normalizedJid = `${phoneNumber}@c.us`;
 
       const convObj = conv.toObject();
+
       if (contactMap[normalizedJid]) {
+        console.log(
+          `✅ Contato encontrado para ${conv.jid}: ${contactMap[normalizedJid].name}`
+        );
         convObj.name = contactMap[normalizedJid].name;
+      } else {
+        // Se não há contato salvo, formata o número do telefone
+        const formattedPhone = formatPhoneNumber(phoneNumber);
+        console.log(
+          `❌ Nenhum contato para ${conv.jid}, usando número formatado: ${formattedPhone}`
+        );
+        convObj.name = formattedPhone;
       }
 
       return convObj;
@@ -823,6 +891,10 @@ app.get("/conversations/:jid", authMiddleware, async (req, res) => {
     const convObj = conv.toObject();
     if (contact) {
       convObj.name = contact.name;
+    } else {
+      // Se não há contato salvo, formata o número do telefone
+      const formattedPhone = formatPhoneNumber(phoneNumber);
+      convObj.name = formattedPhone;
     }
 
     res.json(convObj);
@@ -1042,16 +1114,28 @@ app.post("/contacts", authMiddleware, async (req, res) => {
 app.get("/contact-exists/:jid", authMiddleware, async (req, res) => {
   try {
     const { jid } = req.params;
-    console.log("🔍 Verificando contato com JID:", jid);
+    console.log("🔍 Verificando contato com JID recebido:", jid);
 
     // Normaliza o JID - extrai só o número
     const phoneNumber = jid.replace(/\D/g, "");
     const normalizedJid = `${phoneNumber}@c.us`;
 
-    console.log("📝 JID normalizado:", normalizedJid);
+    console.log("📝 JID normalizado para busca:", normalizedJid);
 
+    // Tenta encontrar o contato
     const contact = await Contact.findOne({ jid: normalizedJid });
-    console.log("📊 Contato encontrado:", !!contact);
+    console.log("📊 Contato encontrado?", !!contact);
+
+    if (contact) {
+      console.log("✅ Detalhes:", { jid: contact.jid, name: contact.name });
+    } else {
+      // Debug: busca todos os contatos para ver o que existe
+      const allContacts = await Contact.find();
+      console.log(
+        "🔎 Todos os contatos no banco:",
+        allContacts.map((c) => ({ jid: c.jid, name: c.name }))
+      );
+    }
 
     res.json({
       exists: !!contact,
